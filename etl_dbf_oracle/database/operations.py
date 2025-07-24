@@ -162,7 +162,7 @@ class DatabaseOperations:
     def prepare_data_for_insert(self, df: pl.DataFrame, 
                                column_mapping: Dict[str, str]) -> Tuple[List[str], List[List]]:
         """
-        Prepare data for Oracle insertion.
+        Prepare data for Oracle insertion with proper type conversion.
         
         Args:
             df: Polars DataFrame
@@ -174,22 +174,87 @@ class DatabaseOperations:
         # Rename columns according to mapping
         df_renamed = df.rename(column_mapping)
         
+        # Get column types for proper conversion
+        column_types = {col: dtype for col, dtype in zip(df_renamed.columns, df_renamed.dtypes)}
+        
         # Convert to list of lists for Oracle insertion
-        # Handle None/null values properly
+        # Handle None/null values and type conversion properly
         data_rows = []
         for row in df_renamed.iter_rows():
             processed_row = []
-            for value in row:
+            for i, (value, col_name) in enumerate(zip(row, df_renamed.columns)):
                 if value is None or (isinstance(value, float) and str(value).lower() == 'nan'):
                     processed_row.append(None)
                 else:
-                    processed_row.append(value)
+                    # Convert value based on expected Oracle type
+                    col_type = column_types[col_name]
+                    processed_value = self._convert_value_for_oracle(value, col_type)
+                    processed_row.append(processed_value)
             data_rows.append(processed_row)
         
         column_names = list(column_mapping.values())
         
         logger.debug(f"Prepared {len(data_rows)} rows for insertion")
         return column_names, data_rows
+    
+    def _convert_value_for_oracle(self, value, polars_type):
+        """
+        Convert value to appropriate type for Oracle insertion.
+        
+        Args:
+            value: The value to convert
+            polars_type: Polars data type
+            
+        Returns:
+            Converted value suitable for Oracle
+        """
+        if value is None:
+            return None
+            
+        try:
+            # Handle string types - keep as string
+            if polars_type == pl.Utf8:
+                return str(value)
+            
+            # Handle numeric types
+            elif polars_type in [pl.Int8, pl.Int16, pl.Int32, pl.Int64, 
+                               pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64]:
+                # Convert to int, handle string representations
+                if isinstance(value, str):
+                    try:
+                        return int(float(value))  # Handle "123.0" strings
+                    except (ValueError, TypeError):
+                        return None
+                return int(value)
+            
+            # Handle float types
+            elif polars_type in [pl.Float32, pl.Float64]:
+                if isinstance(value, str):
+                    try:
+                        return float(value)
+                    except (ValueError, TypeError):
+                        return None
+                return float(value)
+            
+            # Handle boolean types
+            elif polars_type == pl.Boolean:
+                if isinstance(value, str):
+                    return 1 if value.lower() in ['true', '1', 'yes', 'y'] else 0
+                return 1 if value else 0
+            
+            # Handle date/datetime types
+            elif isinstance(polars_type, (pl.Date, pl.Datetime)):
+                if isinstance(value, str):
+                    return value  # Let Oracle handle date parsing
+                return str(value)
+            
+            # Default: convert to string
+            else:
+                return str(value)
+                
+        except Exception as e:
+            logger.warning(f"Failed to convert value {value} of type {type(value)} for Polars type {polars_type}: {e}")
+            return str(value)  # Fallback to string
     
     def insert_data(self, table_name: str, df: pl.DataFrame, 
                    column_mapping: Dict[str, str], batch_size: int = 1000) -> None:
