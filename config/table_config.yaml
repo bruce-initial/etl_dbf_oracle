@@ -1,0 +1,86 @@
+tables:
+  # DBF to Oracle example
+  dbf_to_oracle_table:
+    source_type: dbf
+    source_file_path: sample.dbf  # Explicit DBF source file
+    target_type: oracle
+    target_table: TEST_DBF
+    primary_key: [ID]
+    batch_size: 500
+    drop_if_exists: true
+    dbf_options: {}
+
+  # CSV to Oracle example
+  # csv_to_oracle_table:
+  #   source_type: csv
+  #   source_file_path: sample.csv  # Explicit CSV file path
+  #   target_type: oracle
+  #   target_table: TEST_CSV
+  #   primary_key: [ID]
+  #   batch_size: 1000
+  #   drop_if_exists: true
+  #   csv_options:
+  #     infer_schema_length: 5000
+  #     null_values: ['', 'NULL', 'N/A']
+
+  # XLSX to Oracle example
+  # xlsx_to_oracle_table:
+  #   source_type: xlsx
+  #   source_file_path: sample.xlsx  # Explicit CSV file path
+  #   target_type: oracle
+  #   target_table: TEST_XLSX
+  #   primary_key: [ID]
+  #   batch_size: 1000
+  #   drop_if_exists: true
+  #   csv_options:
+  #     infer_schema_length: 5000
+  #     null_values: ['', 'NULL', 'N/A']
+
+# Example: Customer query on csv
+  # testiles_pipeline:
+  #   source_type: custom_query
+  #   custom_query: sql/custom_query.sql
+  #   target_table: TESTILES
+  #   batch_size: 1000
+  #   primary_key: [ID]
+  #   indexes:
+  #     - name: idx_testiles
+  #       columns: [NAME_NAME]
+  #       unique: false
+  #   data_source:
+  #     type: csv
+  #     file_path: data/testiles_pipeline.csv
+  #     table_alias: testiles_pipeline
+  #     options:
+  #       separator: ","
+  #       has_header: true
+
+  # employees:
+  #   source_type: csv
+  #   target_table: EMPLOYEES
+  #   batch_size: 1000
+  #   primary_key: [employee_id]
+  #   indexes:
+  #     - name: idx_emp_email
+  #       columns: [email]
+  #       unique: true
+  #   csv_options:
+  #     separator: ","
+  #     has_header: true
+
+  # employee_summary:
+  #   source_type: custom_query
+  #   custom_query: sql/employee_summary.sql
+  #   target_table: EMPLOYEE_SUMMARY
+  #   batch_size: 500
+  #   primary_key: [department_id]
+
+  # departments:
+  #   source_type: table
+  #   source_table: DEPT
+  #   source_schema: HR
+  #   target_table: DEPARTMENTS_COPY
+  #   foreign_keys:
+  #     - columns: [manager_id]
+  #       reference_table: EMPLOYEES
+  #       reference_columns: [employee_id]
