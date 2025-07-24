@@ -117,7 +117,20 @@ class SchemaManager:
         ddl_parts.append(")")
         
         ddl_statement = "\n".join(ddl_parts)
-        logger.debug(f"Generated DDL for table {table_name}")
+        logger.debug(f"Generated DDL for table {table_name}:")
+        logger.debug(ddl_statement)
+        
+        # Also log the column type mappings for debugging
+        type_info = []
+        for original_col, sanitized_col in column_mapping.items():
+            polars_type = df[original_col].dtype
+            if polars_type == pl.Utf8 and original_col in column_sizes:
+                oracle_type = f"VARCHAR2({column_sizes[original_col]})"
+            else:
+                oracle_type = cls.polars_to_oracle_type(polars_type)
+            type_info.append(f"{original_col} ({polars_type}) -> {sanitized_col} ({oracle_type})")
+        
+        logger.debug(f"Column type mappings: {'; '.join(type_info)}")
         return ddl_statement
     
     @staticmethod

@@ -124,14 +124,34 @@ class DataExtractor:
                         record_dict[field_name] = value
                     records.append(record_dict)
             
-            # Convert to Polars DataFrame with increased schema inference
+            # Convert to Polars DataFrame with better type handling
             if records:
                 # Use pandas as intermediate step for better type handling
                 import pandas as pd
                 pandas_df = pd.DataFrame(records)
                 
-                # Convert pandas DataFrame to Polars with better type inference
+                # Ensure proper type inference for mixed string/numeric data
+                for col in pandas_df.columns:
+                    # Try to convert numeric strings to actual numbers
+                    if pandas_df[col].dtype == 'object':
+                        # Check if all non-null values are numeric strings
+                        non_null_values = pandas_df[col].dropna()
+                        if len(non_null_values) > 0:
+                            try:
+                                # Try converting to numeric
+                                numeric_values = pd.to_numeric(non_null_values, errors='coerce')
+                                # If all values converted successfully (no NaN from conversion)
+                                if not numeric_values.isna().any():
+                                    pandas_df[col] = pd.to_numeric(pandas_df[col], errors='coerce')
+                                    logger.debug(f"Converted DBF column '{col}' from string to numeric")
+                            except:
+                                pass  # Keep as string
+                
+                # Convert pandas DataFrame to Polars
                 df = pl.from_pandas(pandas_df)
+                
+                # Log the final data types for debugging
+                logger.debug(f"DBF extraction final column types: {dict(zip(df.columns, df.dtypes))}")
             else:
                 # Create empty DataFrame with field names
                 df = pl.DataFrame({field: [] for field in field_names})
