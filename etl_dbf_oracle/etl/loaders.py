@@ -544,8 +544,13 @@ class DataLoader:
                 )
                 
             except Exception as pandas_error:
-                logger.error(f"Pandas Excel writing failed: {pandas_error}")
-                raise Exception(f"Failed to write XLSX file using pandas: {pandas_error}")
+                # Check if it's a missing Excel engine error
+                if "openpyxl" in str(pandas_error).lower() or "xlsxwriter" in str(pandas_error).lower():
+                    logger.error(f"Missing Excel engine for XLSX writing: {pandas_error}")
+                    raise Exception(f"XLSX writing requires openpyxl. Install with: pip install openpyxl")
+                else:
+                    logger.error(f"Pandas Excel writing failed: {pandas_error}")
+                    raise Exception(f"Failed to write XLSX file using pandas: {pandas_error}")
             
             logger.info(f"Successfully loaded {len(df_renamed)} rows into XLSX file: {xlsx_file_path}")
             

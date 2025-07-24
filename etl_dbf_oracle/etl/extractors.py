@@ -113,14 +113,25 @@ class DataExtractor:
                                 value = str(value)
                         elif value is None:
                             value = None
+                        elif hasattr(value, 'date') and callable(getattr(value, 'date')):
+                            # Handle datetime objects by converting to date string
+                            value = str(value.date())
+                        elif hasattr(value, '__class__') and 'date' in str(type(value)).lower():
+                            # Handle date objects by converting to string
+                            value = str(value)
                         else:
                             value = value
                         record_dict[field_name] = value
                     records.append(record_dict)
             
-            # Convert to Polars DataFrame
+            # Convert to Polars DataFrame with increased schema inference
             if records:
-                df = pl.DataFrame(records)
+                # Use pandas as intermediate step for better type handling
+                import pandas as pd
+                pandas_df = pd.DataFrame(records)
+                
+                # Convert pandas DataFrame to Polars with better type inference
+                df = pl.from_pandas(pandas_df)
             else:
                 # Create empty DataFrame with field names
                 df = pl.DataFrame({field: [] for field in field_names})
@@ -183,8 +194,13 @@ class DataExtractor:
                 logger.info(f"Successfully read XLSX using pandas and converted to Polars")
                 
             except Exception as e:
-                logger.error(f"Pandas Excel writing failed: {e}")
-                raise Exception(f"Failed to read XLSX file: {e}")
+                # Check if it's a missing Excel engine error  
+                if "openpyxl" in str(e).lower() or "xlsxwriter" in str(e).lower() or "xlrd" in str(e).lower():
+                    logger.error(f"Missing Excel engine for XLSX reading: {e}")
+                    raise Exception(f"XLSX reading requires openpyxl. Install with: pip install openpyxl")
+                else:
+                    logger.error(f"Failed to read XLSX file: {e}")
+                    raise Exception(f"Failed to read XLSX file: {e}")
             
             # Post-process datetime columns that failed to parse
             df = self._fix_datetime_columns(df)
@@ -485,7 +501,7 @@ class DataExtractor:
                     raise ValueError("No CSV file path specified in data_source or parameter")
                 
                 # Get CSV options from data_source or config
-                csv_options = data_source.get('options', config.csv_options)
+                csv_options = data_source.get('options', getattr(config, 'csv_options', {}))
                 source_df = self.extract_from_csv(csv_file_path, csv_options)
             
             elif ds_type == 'dbf':
@@ -495,7 +511,7 @@ class DataExtractor:
                     raise ValueError("No DBF file path specified in data_source or parameter")
                 
                 # Get DBF options from data_source or config
-                dbf_options = data_source.get('options', config.dbf_options)
+                dbf_options = data_source.get('options', getattr(config, 'dbf_options', {}))
                 source_df = self.extract_from_dbf(dbf_file_path, dbf_options)
                 
             elif ds_type == 'xlsx':

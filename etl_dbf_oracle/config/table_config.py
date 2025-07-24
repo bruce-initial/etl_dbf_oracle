@@ -95,7 +95,7 @@ class TableConfig:
             # Validate data_source configuration
             ds_type = self.data_source.get('type')
             if not ds_type:
-                raise ValueError("data_source.type is required (csv, dbf, or table)")
+                raise ValueError("data_source.type is required (csv, dbf, xlsx, or table)")
             
             if ds_type.lower() == 'csv' and not self.data_source.get('file_path'):
                 raise ValueError("data_source.file_path is required for CSV data source")

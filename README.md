@@ -50,19 +50,12 @@ pip install -r requirements.txt
 ### Required Dependencies
 - `polars>=1.31.0` - High-performance DataFrame library
 - `pandas>=2.0.0` - For XLSX support and data conversion
+- `openpyxl>=3.1.5` - Excel file support for pandas
 - `oracledb>=3.2.0` - Oracle database connectivity
 - `duckdb>=1.3.2` - For custom query execution
 - `dbf>=0.99.10` - DBF file support
 - `pyyaml>=6.0.2` - YAML configuration parsing
 - `python-dotenv>=1.1.1` - Environment variable management
-
-### Optional Dependencies for XLSX Support
-To enable full XLSX functionality, install one of:
-```bash
-pip install openpyxl  # Recommended for XLSX
-# OR
-pip install xlsxwriter  # Alternative for XLSX writing
-```
 
 ## Quick Start
 
@@ -363,7 +356,8 @@ The pipeline provides comprehensive error handling:
 
 ### Common Issues
 
-1. **"XLSX reading requires an Excel engine"**
+1. **"XLSX reading/writing requires openpyxl"**
+   This should not occur with normal installation since openpyxl is included as a dependency. If it does occur:
    ```bash
    pip install openpyxl
    ```
