@@ -396,17 +396,26 @@ class DataExtractor:
         if source_type == 'csv':
             if not file_path:
                 raise ValueError("file_path is required for CSV source type")
-            return self.extract_from_csv(file_path, config.csv_options)
+            if isinstance(file_path, list):
+                return self.extract_from_multiple_csv(file_path, config.csv_options)
+            else:
+                return self.extract_from_csv(file_path, config.csv_options)
         
         elif source_type == 'dbf':
             if not file_path:
                 raise ValueError("file_path is required for DBF source type")
-            return self.extract_from_dbf(file_path, config.dbf_options)
+            if isinstance(file_path, list):
+                return self.extract_from_multiple_dbf(file_path, config.dbf_options)
+            else:
+                return self.extract_from_dbf(file_path, config.dbf_options)
         
         elif source_type == 'xlsx':
             if not file_path:
                 raise ValueError("file_path is required for XLSX source type")
-            return self.extract_from_xlsx(file_path, config.xlsx_options)
+            if isinstance(file_path, list):
+                return self.extract_from_multiple_xlsx(file_path, config.xlsx_options)
+            else:
+                return self.extract_from_xlsx(file_path, config.xlsx_options)
         
         elif source_type == 'custom_query':
             if not config.custom_query_file:
@@ -771,4 +780,127 @@ class DataExtractor:
             
         except Exception as e:
             logger.error(f"Failed to prepare multiple XLSX files: {e}")
+            raise
+    
+    def extract_from_multiple_csv(self, file_paths: list, csv_options: dict = None) -> pl.DataFrame:
+        """
+        Extract and combine data from multiple CSV files.
+        
+        Args:
+            file_paths: List of CSV file paths
+            csv_options: Additional options for CSV reading
+            
+        Returns:
+            Combined Polars DataFrame with data from all CSV files
+            
+        Raises:
+            FileNotFoundError: If any CSV file doesn't exist
+            Exception: If CSV reading fails
+        """
+        try:
+            logger.info(f"Extracting data from {len(file_paths)} CSV files")
+            
+            dataframes = []
+            for i, file_path in enumerate(file_paths):
+                logger.info(f"Processing CSV file {i+1}/{len(file_paths)}: {file_path}")
+                df = self.extract_from_csv(file_path, csv_options)
+                
+                # Add source file column to track origin
+                df = df.with_columns(pl.lit(file_path).alias("_source_file"))
+                dataframes.append(df)
+            
+            # Combine all dataframes
+            if len(dataframes) == 1:
+                combined_df = dataframes[0]
+            else:
+                # Use concat to combine dataframes with schema alignment
+                combined_df = pl.concat(dataframes, how="diagonal_relaxed")
+            
+            logger.info(f"Combined {len(file_paths)} CSV files into DataFrame with {len(combined_df)} rows")
+            return combined_df
+            
+        except Exception as e:
+            logger.error(f"Failed to extract multiple CSV files: {e}")
+            raise
+    
+    def extract_from_multiple_dbf(self, file_paths: list, dbf_options: dict = None) -> pl.DataFrame:
+        """
+        Extract and combine data from multiple DBF files.
+        
+        Args:
+            file_paths: List of DBF file paths
+            dbf_options: Additional options for DBF reading
+            
+        Returns:
+            Combined Polars DataFrame with data from all DBF files
+            
+        Raises:
+            FileNotFoundError: If any DBF file doesn't exist
+            Exception: If DBF reading fails
+        """
+        try:
+            logger.info(f"Extracting data from {len(file_paths)} DBF files")
+            
+            dataframes = []
+            for i, file_path in enumerate(file_paths):
+                logger.info(f"Processing DBF file {i+1}/{len(file_paths)}: {file_path}")
+                df = self.extract_from_dbf(file_path, dbf_options)
+                
+                # Add source file column to track origin
+                df = df.with_columns(pl.lit(file_path).alias("_source_file"))
+                dataframes.append(df)
+            
+            # Combine all dataframes
+            if len(dataframes) == 1:
+                combined_df = dataframes[0]
+            else:
+                # Use concat to combine dataframes with schema alignment
+                combined_df = pl.concat(dataframes, how="diagonal_relaxed")
+            
+            logger.info(f"Combined {len(file_paths)} DBF files into DataFrame with {len(combined_df)} rows")
+            return combined_df
+            
+        except Exception as e:
+            logger.error(f"Failed to extract multiple DBF files: {e}")
+            raise
+    
+    def extract_from_multiple_xlsx(self, file_paths: list, xlsx_options: dict = None) -> pl.DataFrame:
+        """
+        Extract and combine data from multiple XLSX files.
+        
+        Args:
+            file_paths: List of XLSX file paths
+            xlsx_options: Additional options for XLSX reading
+            
+        Returns:
+            Combined Polars DataFrame with data from all XLSX files
+            
+        Raises:
+            FileNotFoundError: If any XLSX file doesn't exist
+            Exception: If XLSX reading fails
+        """
+        try:
+            logger.info(f"Extracting data from {len(file_paths)} XLSX files")
+            
+            dataframes = []
+            for i, file_path in enumerate(file_paths):
+                logger.info(f"Processing XLSX file {i+1}/{len(file_paths)}: {file_path}")
+                df = self.extract_from_xlsx(file_path, xlsx_options)
+                
+                # Add source file column to track origin
+                df = df.with_columns(pl.lit(file_path).alias("_source_file"))
+                dataframes.append(df)
+            
+            # Combine all dataframes
+            if len(dataframes) == 1:
+                combined_df = dataframes[0]
+            else:
+                # Use concat to combine dataframes with schema alignment
+                combined_df = pl.concat(dataframes, how="diagonal_relaxed")
+            
+            logger.info(f"Combined {len(file_paths)} XLSX files into DataFrame with {len(combined_df)} rows")
+            return combined_df
+            
+        except Exception as e:
+            logger.error(f"Failed to extract multiple XLSX files: {e}")
             raise

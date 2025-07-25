@@ -68,12 +68,18 @@ class TableConfig:
         if self.source_type.lower() == 'csv':
             if not self.source_file_path:
                 raise ValueError("source_file_path is required for CSV source type")
+            if isinstance(self.source_file_path, list) and len(self.source_file_path) == 0:
+                raise ValueError("source_file_path list cannot be empty for CSV source type")
         elif self.source_type.lower() == 'dbf':
             if not self.source_file_path:
                 raise ValueError("source_file_path is required for DBF source type")
+            if isinstance(self.source_file_path, list) and len(self.source_file_path) == 0:
+                raise ValueError("source_file_path list cannot be empty for DBF source type")
         elif self.source_type.lower() == 'xlsx':
             if not self.source_file_path:
                 raise ValueError("source_file_path is required for XLSX source type")
+            if isinstance(self.source_file_path, list) and len(self.source_file_path) == 0:
+                raise ValueError("source_file_path list cannot be empty for XLSX source type")
         elif self.source_type.lower() == 'table':
             if not self.source_table:
                 raise ValueError("source_table is required for table source type")
@@ -97,14 +103,32 @@ class TableConfig:
             if not ds_type:
                 raise ValueError("data_source.type is required (csv, dbf, xlsx, or table)")
             
-            if ds_type.lower() == 'csv' and not self.data_source.get('file_path'):
-                raise ValueError("data_source.file_path is required for CSV data source")
-            elif ds_type.lower() == 'dbf' and not self.data_source.get('file_path'):
-                raise ValueError("data_source.file_path is required for DBF data source")
-            elif ds_type.lower() == 'xlsx' and not self.data_source.get('file_path'):
-                raise ValueError("data_source.file_path is required for XLSX data source")
-            elif ds_type.lower() == 'table' and not self.data_source.get('table_name'):
-                raise ValueError("data_source.table_name is required for table data source")
+            if ds_type.lower() == 'csv':
+                file_path = self.data_source.get('file_path')
+                if not file_path:
+                    raise ValueError("data_source.file_path is required for CSV data source")
+            elif ds_type.lower() == 'dbf':
+                file_path = self.data_source.get('file_path')
+                if not file_path:
+                    raise ValueError("data_source.file_path is required for DBF data source")
+            elif ds_type.lower() == 'xlsx':
+                file_path = self.data_source.get('file_path')
+                if not file_path:
+                    raise ValueError("data_source.file_path is required for XLSX data source")
+                # file_path can be a string (single file) or list (multiple files for custom queries)
+                if not isinstance(file_path, (str, list)):
+                    raise ValueError("data_source.file_path must be a string or list of strings")
+                if isinstance(file_path, list) and len(file_path) == 0:
+                    raise ValueError("data_source.file_path list cannot be empty")
+            elif ds_type.lower() == 'table':
+                table_name = self.data_source.get('table_name')
+                if not table_name:
+                    raise ValueError("data_source.table_name is required for table data source")
+                # table_name can be a string (single table) or list (multiple tables for custom queries)
+                if not isinstance(table_name, (str, list)):
+                    raise ValueError("data_source.table_name must be a string or list of strings")
+                if isinstance(table_name, list) and len(table_name) == 0:
+                    raise ValueError("data_source.table_name list cannot be empty")
     
     @classmethod
     def load_from_yaml(cls, config_file: str) -> Dict[str, 'TableConfig']:

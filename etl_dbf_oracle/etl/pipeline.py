@@ -203,18 +203,51 @@ class OracleETL:
                     file_path = None
                     if config.source_type.lower() in ['csv', 'dbf', 'xlsx']:
                         if hasattr(config, 'source_file_path') and config.source_file_path:
-                            file_path = config.source_file_path
-                            # Make relative paths relative to data_directory if not absolute
-                            if not os.path.isabs(file_path):
-                                file_path = os.path.join(data_directory, file_path)
+                            raw_file_path = config.source_file_path
                             
-                            if not os.path.exists(file_path):
-                                logger.warning(f"{config.source_type.upper()} file not found: {file_path}, skipping {table_name}")
-                                all_results[table_name] = {
-                                    'error': f'{config.source_type.upper()} file not found',
-                                    'file_path': file_path
-                                }
-                                continue
+                            # Handle both single files and multiple files
+                            if isinstance(raw_file_path, list):
+                                # Multiple files - process each one
+                                file_path = []
+                                missing_files = []
+                                for fp in raw_file_path:
+                                    # Make relative paths relative to data_directory if not absolute
+                                    if not os.path.isabs(fp):
+                                        fp = os.path.join(data_directory, fp)
+                                    
+                                    if not os.path.exists(fp):
+                                        missing_files.append(fp)
+                                    else:
+                                        file_path.append(fp)
+                                
+                                if missing_files:
+                                    logger.warning(f"{config.source_type.upper()} files not found: {missing_files}, skipping {table_name}")
+                                    all_results[table_name] = {
+                                        'error': f'{config.source_type.upper()} files not found: {missing_files}',
+                                        'missing_files': missing_files
+                                    }
+                                    continue
+                                    
+                                if not file_path:  # All files were missing
+                                    logger.warning(f"No valid {config.source_type.upper()} files found, skipping {table_name}")
+                                    all_results[table_name] = {
+                                        'error': f'No valid {config.source_type.upper()} files found'
+                                    }
+                                    continue
+                            else:
+                                # Single file
+                                file_path = raw_file_path
+                                # Make relative paths relative to data_directory if not absolute
+                                if not os.path.isabs(file_path):
+                                    file_path = os.path.join(data_directory, file_path)
+                                
+                                if not os.path.exists(file_path):
+                                    logger.warning(f"{config.source_type.upper()} file not found: {file_path}, skipping {table_name}")
+                                    all_results[table_name] = {
+                                        'error': f'{config.source_type.upper()} file not found',
+                                        'file_path': file_path
+                                    }
+                                    continue
                         else:
                             logger.error(f"source_file_path is required for {config.source_type} source type in table {table_name}")
                             all_results[table_name] = {
