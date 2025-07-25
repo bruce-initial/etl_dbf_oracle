@@ -542,17 +542,31 @@ class DataExtractor:
                 
                 # Get XLSX options from data_source or config
                 xlsx_options = data_source.get('options', getattr(config, 'xlsx_options', {}))
-                source_df = self.extract_from_xlsx(xlsx_file_path, xlsx_options)
+                
+                # Handle multiple XLSX files for custom queries
+                if isinstance(xlsx_file_path, list):
+                    source_df = self._prepare_multiple_xlsx_files(xlsx_file_path, xlsx_options, data_source)
+                else:
+                    source_df = self.extract_from_xlsx(xlsx_file_path, xlsx_options)
                 
             elif ds_type == 'table':
-                # Extract from database table
+                # Extract from database table(s)
                 table_name = data_source.get('table_name')
                 schema_name = data_source.get('schema_name')
                 
                 if not self.db_operations:
                     raise RuntimeError("Database operations not available for table data source")
                 
-                source_df = self.extract_from_table(table_name, schema_name)
+                # Handle multiple tables for custom queries
+                if isinstance(table_name, list):
+                    # For multiple tables, we'll register each table individually with DuckDB
+                    # The actual query execution will be handled by the custom query
+                    source_df = self._prepare_multiple_oracle_tables(table_name, schema_name)
+                else:
+                    # Single table extraction
+                    if not table_name:
+                        raise ValueError("table_name is required for table data source")
+                    source_df = self.extract_from_table(table_name, schema_name)
                 
             else:
                 raise ValueError(f"Unsupported data source type: {ds_type}")
@@ -579,19 +593,59 @@ class DataExtractor:
         Execute SQL query on DataFrame using DuckDB.
         
         Args:
-            df: Source DataFrame
-            sql_query: SQL query to execute
+            df: Source DataFrame or None (for Oracle table data sources)
+            sql_query: SQL query to execute  
             data_source: Data source configuration (contains table alias info)
             
         Returns:
             Polars DataFrame with query results
         """
         try:
-            # Create DuckDB connection
+            logger.debug(f"Executing query on DataFrame with data_source type: {data_source.get('type')}")
+            logger.debug(f"DataFrame attributes: {[attr for attr in dir(df) if attr.startswith('_')]}")
+            
+            # Handle Oracle table data sources differently
+            if data_source.get('type') == 'table' and hasattr(df, '_oracle_tables'):
+                logger.debug("Using Oracle table data source")
+                return self._execute_oracle_custom_query(sql_query)
+            
+            # Handle multi-file data sources
+            if '_multi_file_marker' in df.columns:
+                logger.debug("Using multi-file data source")
+                # Use the pre-configured DuckDB connection with multiple tables
+                multi_conn = df._duckdb_connection
+                
+                try:
+                    # Execute the query on the multi-file setup
+                    result = multi_conn.execute(sql_query).fetchall()
+                    columns = [desc[0] for desc in multi_conn.description]
+                    
+                    # Convert back to Polars DataFrame
+                    if result:
+                        records = [dict(zip(columns, row)) for row in result]
+                        result_df = pl.DataFrame(records)
+                    else:
+                        result_df = pl.DataFrame({col: [] for col in columns})
+                    
+                    return result_df
+                    
+                except Exception as e:
+                    logger.error(f"Failed to execute multi-file query: {e}")
+                    raise
+                finally:
+                    # Clean up the connection
+                    try:
+                        multi_conn.close()
+                    except:
+                        pass
+            
+            # Create DuckDB connection for single file sources
             conn = duckdb.connect()
             
+            # For file-based data sources, use DuckDB
             # Get table alias from data_source or use default
             table_alias = data_source.get('table_alias', 'source_table')
+            logger.debug(f"Using single file data source with alias: {table_alias}")
             
             # Convert Polars DataFrame to DuckDB relation and register it
             conn.register(table_alias, df.to_arrow())
@@ -619,4 +673,102 @@ class DataExtractor:
             
         except Exception as e:
             logger.error(f"Failed to execute query on DataFrame: {e}")
+            raise
+    
+    def _prepare_multiple_oracle_tables(self, table_names: list, schema_name: Optional[str] = None) -> pl.DataFrame:
+        """
+        Prepare marker DataFrame for multiple Oracle tables (used for custom queries).
+        
+        Args:
+            table_names: List of Oracle table names
+            schema_name: Optional schema name
+            
+        Returns:
+            Marker DataFrame with table information
+        """
+        # Create a marker DataFrame that indicates this is an Oracle table data source
+        marker_df = pl.DataFrame({'_oracle_table_marker': [True]})
+        # Store the table information as attributes
+        marker_df._oracle_tables = table_names
+        marker_df._oracle_schema = schema_name
+        
+        logger.info(f"Prepared Oracle table data source with tables: {table_names}")
+        return marker_df
+    
+    def _execute_oracle_custom_query(self, sql_query: str) -> pl.DataFrame:
+        """
+        Execute custom SQL query directly on Oracle database.
+        
+        Args:
+            sql_query: SQL query to execute on Oracle
+            
+        Returns:
+            Polars DataFrame with query results
+        """
+        if not self.db_operations:
+            raise RuntimeError("Database operations not available for Oracle custom query")
+        
+        try:
+            # Execute the query directly on Oracle
+            result_df = self.db_operations.execute_query(sql_query)
+            logger.info(f"Oracle custom query executed successfully, returned {len(result_df)} rows")
+            return result_df
+            
+        except Exception as e:
+            logger.error(f"Failed to execute Oracle custom query: {e}")
+            raise
+    
+    def _prepare_multiple_xlsx_files(self, file_paths: list, xlsx_options: dict, data_source: dict) -> pl.DataFrame:
+        """
+        Prepare multiple XLSX files for custom query execution.
+        
+        Args:
+            file_paths: List of XLSX file paths
+            xlsx_options: XLSX reading options
+            data_source: Data source configuration
+            
+        Returns:
+            Combined DataFrame or marker DataFrame
+        """
+        try:
+            # Create DuckDB connection for combining files
+            conn = duckdb.connect()
+            
+            # Get table aliases - should match the number of files
+            table_aliases = data_source.get('table_alias', [])
+            if isinstance(table_aliases, str):
+                table_aliases = [table_aliases]
+            
+            # Ensure we have aliases for all files
+            if len(table_aliases) != len(file_paths):
+                # Generate default aliases if not provided or mismatched
+                table_aliases = [f"source_table_{i+1}" for i in range(len(file_paths))]
+                logger.warning(f"Generated default table aliases: {table_aliases}")
+            
+            # Load each XLSX file and register with DuckDB
+            for i, (file_path, alias) in enumerate(zip(file_paths, table_aliases)):
+                try:
+                    # Extract the XLSX file
+                    df = self.extract_from_xlsx(file_path, xlsx_options)
+                    
+                    # Register with DuckDB - register each table individually
+                    conn.register(str(alias), df.to_arrow())
+                    logger.info(f"Registered XLSX file {file_path} as table '{alias}' with {len(df)} rows")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to load XLSX file {file_path}: {e}")
+                    raise
+            
+            # Store connection and aliases for later use in query execution
+            # Create a marker DataFrame that indicates this is a multi-file source
+            marker_df = pl.DataFrame({'_multi_file_marker': [True]})
+            marker_df._duckdb_connection = conn
+            marker_df._table_aliases = table_aliases
+            marker_df._file_paths = file_paths
+            
+            logger.info(f"Prepared multiple XLSX files: {file_paths} with aliases: {table_aliases}")
+            return marker_df
+            
+        except Exception as e:
+            logger.error(f"Failed to prepare multiple XLSX files: {e}")
             raise

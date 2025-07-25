@@ -1,14 +1,26 @@
 tables:
   # DBF to Oracle example
-  dbf_to_oracle_table:
-    source_type: dbf
-    source_file_path: sample.dbf  # Explicit DBF source file
-    target_type: oracle
-    target_table: TEST_DBF
-    primary_key: [ID]
-    batch_size: 500
-    drop_if_exists: true
-    dbf_options: {}
+  # dbf_to_oracle_table:
+  #   source_type: dbf
+  #   source_file_path: sample.dbf  # Explicit DBF source file
+  #   target_type: oracle
+  #   target_table: TEST_DBF
+  #   primary_key: [ID]
+  #   batch_size: 500
+  #   drop_if_exists: true
+  #   dbf_options: {}
+
+  # DBF to Oracle example
+  # dbf_to_xlsx_table:
+  #   source_type: dbf
+  #   source_file_path: sample.dbf  # Explicit DBF source file
+  #   target_type: xlsx
+  #   target_table: TEST_DBF
+  #   target_file_path: TEST_DBF_XLSX.xlsx
+  #   primary_key: []
+  #   batch_size: 500
+  #   drop_if_exists: true
+  #   dbf_options: {}
 
   # CSV to Oracle example
   # csv_to_oracle_table:
@@ -35,6 +47,20 @@ tables:
   #   csv_options:
   #     infer_schema_length: 5000
   #     null_values: ['', 'NULL', 'N/A']
+  
+# Custom query combine xlsx
+  testiles_pipeline:
+    source_type: custom_query
+    custom_query: sql/custom_query.sql
+    # Target Configuration
+    target_type: xlsx
+    target_table: TARGET_TABLE               # Always required
+    target_file_path: data/combined.xlsx     # For file targets
+    batch_size: 1000
+    data_source:
+      type: xlsx
+      file_path: [data/sample1.xlsx, data/sample2.xlsx]
+      table_alias: [sample1, sample2]
 
 # Example: Customer query on csv
   # testiles_pipeline:
