@@ -305,8 +305,18 @@ class DatabaseOperations:
             return None
             
         try:
-            # Handle string types - keep as string
+            # Handle string types - convert to string but handle special cases
             if polars_type == pl.Utf8:
+                # Handle numeric values that ended up in string columns
+                if isinstance(value, (int, float)):
+                    # Convert numeric values to string representation
+                    if isinstance(value, float):
+                        # Handle float precision issues (e.g., 123.0 -> "123")
+                        if value.is_integer():
+                            return str(int(value))
+                        else:
+                            return str(value)
+                    return str(value)
                 return str(value)
             
             # Handle numeric types
