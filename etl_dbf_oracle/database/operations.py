@@ -311,13 +311,27 @@ class DatabaseOperations:
                 if isinstance(value, (int, float)):
                     # Convert numeric values to string representation
                     if isinstance(value, float):
-                        # Handle float precision issues (e.g., 123.0 -> "123")
-                        if value.is_integer():
-                            return str(int(value))
+                        # Handle special float values
+                        import math
+                        if math.isnan(value):
+                            str_value = ""  # Convert NaN to empty string
+                        elif math.isinf(value):
+                            str_value = "Infinity" if value > 0 else "-Infinity"
+                        elif value.is_integer():
+                            str_value = str(int(value))  # 123.0 -> "123"
                         else:
-                            return str(value)
-                    return str(value)
-                return str(value)
+                            str_value = str(value)
+                    else:
+                        str_value = str(value)
+                else:
+                    str_value = str(value) if value is not None else ""
+                
+                # Truncate if too long for Oracle VARCHAR2 (conservative limit)
+                if len(str_value) > 4000:
+                    logger.warning(f"Truncating string value from {len(str_value)} to 4000 characters")
+                    str_value = str_value[:4000]
+                
+                return str_value
             
             # Handle numeric types
             elif polars_type in [pl.Int8, pl.Int16, pl.Int32, pl.Int64, 
@@ -517,8 +531,21 @@ class DatabaseOperations:
                         
                         # Apply recovery conversion based on type
                         if polars_type == pl.Utf8:
-                            # For VARCHAR columns, always convert to string
-                            converted_value = str(value) if value is not None else None
+                            # For VARCHAR columns, always convert to string with special handling
+                            if value is None:
+                                converted_value = None
+                            elif isinstance(value, float):
+                                import math
+                                if math.isnan(value):
+                                    converted_value = ""
+                                elif math.isinf(value):
+                                    converted_value = "Infinity" if value > 0 else "-Infinity"
+                                elif value.is_integer():
+                                    converted_value = str(int(value))
+                                else:
+                                    converted_value = str(value)
+                            else:
+                                converted_value = str(value)
                         elif polars_type in [pl.Int8, pl.Int16, pl.Int32, pl.Int64, 
                                            pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64]:
                             # For integer columns

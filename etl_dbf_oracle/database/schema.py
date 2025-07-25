@@ -75,8 +75,19 @@ class SchemaManager:
                 if max_length is None:
                     max_length = 255  # Default for all null columns
                 else:
-                    # Add some buffer and ensure minimum size
-                    max_length = max(max_length * 1.2, 50)
+                    # Add substantial buffer for safety and ensure minimum size
+                    # Use a more generous buffer to prevent truncation errors
+                    if max_length <= 50:
+                        max_length = 255  # Small columns get reasonable default
+                    elif max_length <= 100:
+                        max_length = max_length * 2  # Double for medium columns
+                    elif max_length <= 500:
+                        max_length = max_length * 1.5  # 50% buffer for larger columns
+                    else:
+                        max_length = max_length * 1.2  # 20% buffer for very large columns
+                    
+                    # Ensure reasonable bounds
+                    max_length = max(max_length, 100)  # Minimum 100 chars
                     max_length = min(max_length, 4000)  # Oracle VARCHAR2 limit
                 
                 column_sizes[col] = int(max_length)
