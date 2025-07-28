@@ -107,10 +107,16 @@ class DataExtractor:
                         value = record[field_name]
                         # Handle special DBF data types
                         if isinstance(value, bytes):
-                            try:
-                                value = value.decode('utf-8').strip()
-                            except UnicodeDecodeError:
-                                value = str(value)
+                            # Try multiple encodings for DBF files
+                            for encoding in ['utf-8', 'big5', 'gb2312', 'gbk', 'latin1', 'cp1252', 'iso-8859-1']:
+                                try:
+                                    value = value.decode(encoding).strip()
+                                    break
+                                except UnicodeDecodeError:
+                                    continue
+                            else:
+                                # If all encodings fail, use error handling
+                                value = value.decode('utf-8', errors='replace').strip()
                         elif value is None:
                             value = None
                         elif hasattr(value, 'date') and callable(getattr(value, 'date')):
