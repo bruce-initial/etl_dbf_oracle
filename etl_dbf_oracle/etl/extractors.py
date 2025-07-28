@@ -65,10 +65,7 @@ class DataExtractor:
             # Post-process datetime columns that failed to parse
             df = self._fix_datetime_columns(df)
             
-            logger.info(f"Successfully extracted CSV data: {file_path}")
-            logger.info(f"DataFrame shape: {df.shape}")
-            logger.info(f"Columns: {df.columns}")
-            logger.info(f"Data types: {df.dtypes}")
+            logger.info(f"Successfully extracted CSV: {file_path} ({len(df)} rows)")
             return df
             
         except Exception as e:
@@ -149,15 +146,12 @@ class DataExtractor:
                                 # If all values converted successfully (no NaN from conversion)
                                 if not numeric_values.isna().any():
                                     pandas_df[col] = pd.to_numeric(pandas_df[col], errors='coerce')
-                                    logger.debug(f"Converted DBF column '{col}' from string to numeric")
                             except:
                                 pass  # Keep as string
                 
                 # Convert pandas DataFrame to Polars
                 df = pl.from_pandas(pandas_df)
                 
-                # Log the final data types for debugging
-                logger.debug(f"DBF extraction final column types: {dict(zip(df.columns, df.dtypes))}")
             else:
                 # Create empty DataFrame with field names
                 df = pl.DataFrame({field: [] for field in field_names})
@@ -165,10 +159,7 @@ class DataExtractor:
             # Post-process datetime columns that might need parsing
             df = self._fix_datetime_columns(df)
             
-            logger.info(f"Successfully extracted DBF data: {file_path}")
-            logger.info(f"DataFrame shape: {df.shape}")
-            logger.info(f"Columns: {df.columns}")
-            logger.info(f"Data types: {df.dtypes}")
+            logger.info(f"Successfully extracted DBF: {file_path} ({len(df)} rows)")
             return df
             
         except Exception as e:
@@ -231,10 +222,7 @@ class DataExtractor:
             # Post-process datetime columns that failed to parse
             df = self._fix_datetime_columns(df)
             
-            logger.info(f"Successfully extracted XLSX data: {file_path}")
-            logger.info(f"DataFrame shape: {df.shape}")
-            logger.info(f"Columns: {df.columns}")
-            logger.info(f"Data types: {df.dtypes}")
+            logger.info(f"Successfully extracted XLSX: {file_path} ({len(df)} rows)")
             return df
             
         except Exception as e:
@@ -804,12 +792,15 @@ class DataExtractor:
             Exception: If CSV reading fails
         """
         try:
-            logger.info(f"Extracting data from {len(file_paths)} CSV files")
+            logger.info(f"Starting batch extraction: {len(file_paths)} CSV files")
             
             dataframes = []
             for i, file_path in enumerate(file_paths):
-                logger.info(f"Processing CSV file {i+1}/{len(file_paths)}: {file_path}")
+                batch_num = i+1
+                logger.info(f"Processing batch {batch_num}/{len(file_paths)}: {file_path}")
+                logger.info(f"Status: Extracting batch {batch_num}")
                 df = self.extract_from_csv(file_path, csv_options)
+                logger.info(f"Status: Batch {batch_num} extracted ({len(df)} rows)")
                 
                 # Add source file column to track origin
                 df = df.with_columns(pl.lit(file_path).alias("_source_file"))
@@ -822,7 +813,7 @@ class DataExtractor:
                 # Use concat to combine dataframes with schema alignment
                 combined_df = pl.concat(dataframes, how="diagonal_relaxed")
             
-            logger.info(f"Combined {len(file_paths)} CSV files into DataFrame with {len(combined_df)} rows")
+            logger.info(f"Batch processing complete: {len(file_paths)} CSV files, {len(combined_df)} total rows")
             return combined_df
             
         except Exception as e:
@@ -845,12 +836,15 @@ class DataExtractor:
             Exception: If DBF reading fails
         """
         try:
-            logger.info(f"Extracting data from {len(file_paths)} DBF files")
+            logger.info(f"Starting batch extraction: {len(file_paths)} DBF files")
             
             dataframes = []
             for i, file_path in enumerate(file_paths):
-                logger.info(f"Processing DBF file {i+1}/{len(file_paths)}: {file_path}")
+                batch_num = i+1
+                logger.info(f"Processing batch {batch_num}/{len(file_paths)}: {file_path}")
+                logger.info(f"Status: Extracting batch {batch_num}")
                 df = self.extract_from_dbf(file_path, dbf_options)
+                logger.info(f"Status: Batch {batch_num} extracted ({len(df)} rows)")
                 
                 # Add source file column to track origin
                 df = df.with_columns(pl.lit(file_path).alias("_source_file"))
@@ -863,7 +857,7 @@ class DataExtractor:
                 # Use concat to combine dataframes with schema alignment
                 combined_df = pl.concat(dataframes, how="diagonal_relaxed")
             
-            logger.info(f"Combined {len(file_paths)} DBF files into DataFrame with {len(combined_df)} rows")
+            logger.info(f"Batch processing complete: {len(file_paths)} DBF files, {len(combined_df)} total rows")
             return combined_df
             
         except Exception as e:
@@ -886,12 +880,15 @@ class DataExtractor:
             Exception: If XLSX reading fails
         """
         try:
-            logger.info(f"Extracting data from {len(file_paths)} XLSX files")
+            logger.info(f"Starting batch extraction: {len(file_paths)} XLSX files")
             
             dataframes = []
             for i, file_path in enumerate(file_paths):
-                logger.info(f"Processing XLSX file {i+1}/{len(file_paths)}: {file_path}")
+                batch_num = i+1
+                logger.info(f"Processing batch {batch_num}/{len(file_paths)}: {file_path}")
+                logger.info(f"Status: Extracting batch {batch_num}")
                 df = self.extract_from_xlsx(file_path, xlsx_options)
+                logger.info(f"Status: Batch {batch_num} extracted ({len(df)} rows)")
                 
                 # Add source file column to track origin
                 df = df.with_columns(pl.lit(file_path).alias("_source_file"))
@@ -904,7 +901,7 @@ class DataExtractor:
                 # Use concat to combine dataframes with schema alignment
                 combined_df = pl.concat(dataframes, how="diagonal_relaxed")
             
-            logger.info(f"Combined {len(file_paths)} XLSX files into DataFrame with {len(combined_df)} rows")
+            logger.info(f"Batch processing complete: {len(file_paths)} XLSX files, {len(combined_df)} total rows")
             return combined_df
             
         except Exception as e:
