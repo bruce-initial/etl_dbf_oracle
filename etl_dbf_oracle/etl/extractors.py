@@ -414,7 +414,8 @@ class DataExtractor:
             if not file_path:
                 raise ValueError("file_path is required for CSV source type")
             if isinstance(file_path, list):
-                return self.extract_from_multiple_csv(file_path, config.csv_options)
+                return self.extract_from_multiple_csv(file_path, config.csv_options, 
+                                                    getattr(config, '_etl_callback', None), config)
             else:
                 return self.extract_from_csv(file_path, config.csv_options)
         
@@ -422,7 +423,8 @@ class DataExtractor:
             if not file_path:
                 raise ValueError("file_path is required for DBF source type")
             if isinstance(file_path, list):
-                return self.extract_from_multiple_dbf(file_path, config.dbf_options)
+                return self.extract_from_multiple_dbf(file_path, config.dbf_options, 
+                                                    getattr(config, '_etl_callback', None), config)
             else:
                 return self.extract_from_dbf(file_path, config.dbf_options)
         
@@ -430,7 +432,8 @@ class DataExtractor:
             if not file_path:
                 raise ValueError("file_path is required for XLSX source type")
             if isinstance(file_path, list):
-                return self.extract_from_multiple_xlsx(file_path, config.xlsx_options)
+                return self.extract_from_multiple_xlsx(file_path, config.xlsx_options, 
+                                                     getattr(config, '_etl_callback', None), config)
             else:
                 return self.extract_from_xlsx(file_path, config.xlsx_options)
         
@@ -799,134 +802,152 @@ class DataExtractor:
             logger.error(f"Failed to prepare multiple XLSX files: {e}")
             raise
     
-    def extract_from_multiple_csv(self, file_paths: list, csv_options: dict = None) -> pl.DataFrame:
+    def extract_from_multiple_csv(self, file_paths: list, csv_options: dict = None, 
+                                 etl_callback=None, config=None) -> pl.DataFrame:
         """
-        Extract and combine data from multiple CSV files.
+        Extract and process CSV files one by one to reduce memory usage.
         
         Args:
             file_paths: List of CSV file paths
             csv_options: Additional options for CSV reading
+            etl_callback: Function to call for each file's ETL processing
+            config: TableConfig for ETL processing
             
         Returns:
-            Combined Polars DataFrame with data from all CSV files
-            
-        Raises:
-            FileNotFoundError: If any CSV file doesn't exist
-            Exception: If CSV reading fails
+            Combined Polars DataFrame if no callback, else None
         """
         try:
-            logger.info(f"Starting batch extraction: {len(file_paths)} CSV files")
+            logger.info(f"Starting file-by-file processing: {len(file_paths)} CSV files")
             
-            dataframes = []
-            for i, file_path in enumerate(file_paths):
-                batch_num = i+1
-                logger.info(f"Processing batch {batch_num}/{len(file_paths)}: {file_path}")
-                logger.info(f"Status: Extracting batch {batch_num}")
-                df = self.extract_from_csv(file_path, csv_options)
-                logger.info(f"Status: Batch {batch_num} extracted ({len(df)} rows)")
+            if etl_callback and config:
+                # Process each file individually with full ETL
+                for i, file_path in enumerate(file_paths):
+                    batch_num = i+1
+                    logger.info(f"Processing batch {batch_num}/{len(file_paths)}: {file_path}")
+                    logger.info(f"Status: ETL processing batch {batch_num}")
+                    
+                    # Run full ETL for this file
+                    etl_callback(config, file_path)
+                    logger.info(f"Status: Batch {batch_num} ETL complete")
                 
-                # Add source file column to track origin
-                df = df.with_columns(pl.lit(file_path).alias("_source_file"))
-                dataframes.append(df)
-            
-            # Combine all dataframes
-            if len(dataframes) == 1:
-                combined_df = dataframes[0]
+                return None  # No combined DataFrame needed
             else:
-                # Use concat to combine dataframes with schema alignment
-                combined_df = pl.concat(dataframes, how="diagonal_relaxed")
-            
-            logger.info(f"Batch processing complete: {len(file_paths)} CSV files, {len(combined_df)} total rows")
-            return combined_df
+                # Fallback to original behavior for backward compatibility
+                dataframes = []
+                for i, file_path in enumerate(file_paths):
+                    batch_num = i+1
+                    logger.info(f"Processing batch {batch_num}/{len(file_paths)}: {file_path}")
+                    logger.info(f"Status: Extracting batch {batch_num}")
+                    df = self.extract_from_csv(file_path, csv_options)
+                    logger.info(f"Status: Batch {batch_num} extracted ({len(df)} rows)")
+                    
+                    df = df.with_columns(pl.lit(file_path).alias("_source_file"))
+                    dataframes.append(df)
+                
+                combined_df = pl.concat(dataframes, how="diagonal_relaxed") if len(dataframes) > 1 else dataframes[0]
+                logger.info(f"Batch processing complete: {len(file_paths)} CSV files, {len(combined_df)} total rows")
+                return combined_df
             
         except Exception as e:
-            logger.error(f"Failed to extract multiple CSV files: {e}")
+            logger.error(f"Failed to process multiple CSV files: {e}")
             raise
     
-    def extract_from_multiple_dbf(self, file_paths: list, dbf_options: dict = None) -> pl.DataFrame:
+    def extract_from_multiple_dbf(self, file_paths: list, dbf_options: dict = None, 
+                                 etl_callback=None, config=None) -> pl.DataFrame:
         """
-        Extract and combine data from multiple DBF files.
+        Extract and process DBF files one by one to reduce memory usage.
         
         Args:
             file_paths: List of DBF file paths
             dbf_options: Additional options for DBF reading
+            etl_callback: Function to call for each file's ETL processing
+            config: TableConfig for ETL processing
             
         Returns:
-            Combined Polars DataFrame with data from all DBF files
-            
-        Raises:
-            FileNotFoundError: If any DBF file doesn't exist
-            Exception: If DBF reading fails
+            Combined Polars DataFrame if no callback, else None
         """
         try:
-            logger.info(f"Starting batch extraction: {len(file_paths)} DBF files")
+            logger.info(f"Starting file-by-file processing: {len(file_paths)} DBF files")
             
-            dataframes = []
-            for i, file_path in enumerate(file_paths):
-                batch_num = i+1
-                logger.info(f"Processing batch {batch_num}/{len(file_paths)}: {file_path}")
-                logger.info(f"Status: Extracting batch {batch_num}")
-                df = self.extract_from_dbf(file_path, dbf_options)
-                logger.info(f"Status: Batch {batch_num} extracted ({len(df)} rows)")
+            if etl_callback and config:
+                # Process each file individually with full ETL
+                for i, file_path in enumerate(file_paths):
+                    batch_num = i+1
+                    logger.info(f"Processing batch {batch_num}/{len(file_paths)}: {file_path}")
+                    logger.info(f"Status: ETL processing batch {batch_num}")
+                    
+                    # Run full ETL for this file
+                    etl_callback(config, file_path)
+                    logger.info(f"Status: Batch {batch_num} ETL complete")
                 
-                # Add source file column to track origin
-                df = df.with_columns(pl.lit(file_path).alias("_source_file"))
-                dataframes.append(df)
-            
-            # Combine all dataframes
-            if len(dataframes) == 1:
-                combined_df = dataframes[0]
+                return None  # No combined DataFrame needed
             else:
-                # Use concat to combine dataframes with schema alignment
-                combined_df = pl.concat(dataframes, how="diagonal_relaxed")
-            
-            logger.info(f"Batch processing complete: {len(file_paths)} DBF files, {len(combined_df)} total rows")
-            return combined_df
+                # Fallback to original behavior for backward compatibility
+                dataframes = []
+                for i, file_path in enumerate(file_paths):
+                    batch_num = i+1
+                    logger.info(f"Processing batch {batch_num}/{len(file_paths)}: {file_path}")
+                    logger.info(f"Status: Extracting batch {batch_num}")
+                    df = self.extract_from_dbf(file_path, dbf_options)
+                    logger.info(f"Status: Batch {batch_num} extracted ({len(df)} rows)")
+                    
+                    df = df.with_columns(pl.lit(file_path).alias("_source_file"))
+                    dataframes.append(df)
+                
+                combined_df = pl.concat(dataframes, how="diagonal_relaxed") if len(dataframes) > 1 else dataframes[0]
+                logger.info(f"Batch processing complete: {len(file_paths)} DBF files, {len(combined_df)} total rows")
+                return combined_df
             
         except Exception as e:
-            logger.error(f"Failed to extract multiple DBF files: {e}")
+            logger.error(f"Failed to process multiple DBF files: {e}")
             raise
     
-    def extract_from_multiple_xlsx(self, file_paths: list, xlsx_options: dict = None) -> pl.DataFrame:
+    def extract_from_multiple_xlsx(self, file_paths: list, xlsx_options: dict = None, 
+                                  etl_callback=None, config=None) -> pl.DataFrame:
         """
-        Extract and combine data from multiple XLSX files.
+        Extract and process XLSX files one by one to reduce memory usage.
         
         Args:
             file_paths: List of XLSX file paths
             xlsx_options: Additional options for XLSX reading
+            etl_callback: Function to call for each file's ETL processing
+            config: TableConfig for ETL processing
             
         Returns:
-            Combined Polars DataFrame with data from all XLSX files
-            
-        Raises:
-            FileNotFoundError: If any XLSX file doesn't exist
-            Exception: If XLSX reading fails
+            Combined Polars DataFrame if no callback, else None
         """
         try:
-            logger.info(f"Starting batch extraction: {len(file_paths)} XLSX files")
+            logger.info(f"Starting file-by-file processing: {len(file_paths)} XLSX files")
             
-            dataframes = []
-            for i, file_path in enumerate(file_paths):
-                batch_num = i+1
-                logger.info(f"Processing batch {batch_num}/{len(file_paths)}: {file_path}")
-                logger.info(f"Status: Extracting batch {batch_num}")
-                df = self.extract_from_xlsx(file_path, xlsx_options)
-                logger.info(f"Status: Batch {batch_num} extracted ({len(df)} rows)")
+            if etl_callback and config:
+                # Process each file individually with full ETL
+                for i, file_path in enumerate(file_paths):
+                    batch_num = i+1
+                    logger.info(f"Processing batch {batch_num}/{len(file_paths)}: {file_path}")
+                    logger.info(f"Status: ETL processing batch {batch_num}")
+                    
+                    # Run full ETL for this file
+                    etl_callback(config, file_path)
+                    logger.info(f"Status: Batch {batch_num} ETL complete")
                 
-                # Add source file column to track origin
-                df = df.with_columns(pl.lit(file_path).alias("_source_file"))
-                dataframes.append(df)
-            
-            # Combine all dataframes
-            if len(dataframes) == 1:
-                combined_df = dataframes[0]
+                return None  # No combined DataFrame needed
             else:
-                # Use concat to combine dataframes with schema alignment
-                combined_df = pl.concat(dataframes, how="diagonal_relaxed")
-            
-            logger.info(f"Batch processing complete: {len(file_paths)} XLSX files, {len(combined_df)} total rows")
-            return combined_df
+                # Fallback to original behavior for backward compatibility
+                dataframes = []
+                for i, file_path in enumerate(file_paths):
+                    batch_num = i+1
+                    logger.info(f"Processing batch {batch_num}/{len(file_paths)}: {file_path}")
+                    logger.info(f"Status: Extracting batch {batch_num}")
+                    df = self.extract_from_xlsx(file_path, xlsx_options)
+                    logger.info(f"Status: Batch {batch_num} extracted ({len(df)} rows)")
+                    
+                    df = df.with_columns(pl.lit(file_path).alias("_source_file"))
+                    dataframes.append(df)
+                
+                combined_df = pl.concat(dataframes, how="diagonal_relaxed") if len(dataframes) > 1 else dataframes[0]
+                logger.info(f"Batch processing complete: {len(file_paths)} XLSX files, {len(combined_df)} total rows")
+                return combined_df
             
         except Exception as e:
-            logger.error(f"Failed to extract multiple XLSX files: {e}")
+            logger.error(f"Failed to process multiple XLSX files: {e}")
             raise

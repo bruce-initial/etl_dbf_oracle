@@ -149,6 +149,35 @@ class OracleETL:
             etl_results['error'] = str(e)
             raise
     
+    def run_etl_for_multiple_files(self, config: TableConfig, file_paths: List[str], 
+                                  transformation_options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Run ETL pipeline for multiple files with reduced memory usage by processing file-by-file.
+        
+        Args:
+            config: TableConfig object with all settings
+            file_paths: List of file paths to process
+            transformation_options: Options for data transformation
+            
+        Returns:
+            Dictionary with ETL results and statistics
+        """
+        if not isinstance(file_paths, list) or len(file_paths) == 0:
+            raise ValueError("file_paths must be a non-empty list")
+        
+        logger.info(f"Starting file-by-file ETL for {len(file_paths)} files -> {config.target_table}")
+        
+        # Set up callback for individual file processing
+        config._etl_callback = lambda cfg, fp: self.run_etl_for_table(cfg, fp, transformation_options)
+        
+        # Trigger file-by-file processing
+        result = self.run_etl_for_table(config, file_paths, transformation_options)
+        
+        # Clean up callback
+        delattr(config, '_etl_callback')
+        
+        return result
+    
     def run_etl_with_config(self, config: TableConfig, file_path: Optional[str] = None) -> None:
         """
         Run ETL pipeline using table configuration (backward compatibility).
