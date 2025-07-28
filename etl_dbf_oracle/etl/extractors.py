@@ -91,45 +91,64 @@ class DataExtractor:
             raise FileNotFoundError(f"DBF file not found or not readable: {file_path}")
         
         try:
-            # Read DBF file using simple approach
-            with dbf.Table(file_path) as table:
-                # Extract field names and data
-                field_names = table.field_names
-                records = []
-                
-                for record in table:
-                    # Convert DBF record to dictionary
-                    record_dict = {}
-                    for field_name in field_names:
-                        value = record[field_name]
-                        # Handle special DBF data types
-                        if isinstance(value, bytes):
-                            # Try multiple encodings for DBF files
-                            for encoding in ['utf-8', 'big5', 'gb2312', 'gbk', 'latin1', 'cp1252', 'iso-8859-1']:
-                                try:
-                                    decoded_value = value.decode(encoding).strip()
-                                    if encoding != 'utf-8':
-                                        logger.info(f"Field '{field_name}': decoded with {encoding} -> '{decoded_value[:50]}{'...' if len(decoded_value) > 50 else ''}'")
-                                    value = decoded_value
-                                    break
-                                except UnicodeDecodeError:
-                                    continue
-                            else:
-                                # If all encodings fail, use error handling
-                                value = value.decode('utf-8', errors='replace').strip()
-                                logger.warning(f"Field '{field_name}': fallback decode -> '{value[:50]}{'...' if len(value) > 50 else ''}')")
-                        elif value is None:
-                            value = None
-                        elif hasattr(value, 'date') and callable(getattr(value, 'date')):
-                            # Handle datetime objects by converting to date string
-                            value = str(value.date())
-                        elif hasattr(value, '__class__') and 'date' in str(type(value)).lower():
-                            # Handle date objects by converting to string
-                            value = str(value)
+            # Read DBF file with encoding handling
+            table = None
+            for encoding in ['utf-8', 'big5', 'gb2312', 'gbk', 'latin1', 'cp1252', 'iso-8859-1']:
+                try:
+                    table = dbf.Table(file_path, codepage=encoding)
+                    table.open()
+                    logger.info(f"DBF opened with encoding: {encoding}")
+                    break
+                except (UnicodeDecodeError, dbf.DbfError):
+                    if table:
+                        table.close()
+                    continue
+            else:
+                # Fallback without specifying encoding
+                table = dbf.Table(file_path)
+                table.open()
+                logger.info("DBF opened with default encoding")
+            
+            # Extract field names and data
+            field_names = table.field_names
+            records = []
+            
+            for record in table:
+                # Convert DBF record to dictionary
+                record_dict = {}
+                for field_name in field_names:
+                    value = record[field_name]
+                    # Handle special DBF data types
+                    if isinstance(value, bytes):
+                        # Try multiple encodings for DBF files
+                        for encoding in ['utf-8', 'big5', 'gb2312', 'gbk', 'latin1', 'cp1252', 'iso-8859-1']:
+                            try:
+                                decoded_value = value.decode(encoding).strip()
+                                if encoding != 'utf-8':
+                                    logger.info(f"Field '{field_name}': decoded with {encoding} -> '{decoded_value[:50]}{'...' if len(decoded_value) > 50 else ''}'")
+                                value = decoded_value
+                                break
+                            except UnicodeDecodeError:
+                                continue
                         else:
-                            value = value
-                        record_dict[field_name] = value
-                    records.append(record_dict)
+                            # If all encodings fail, use error handling
+                            value = value.decode('utf-8', errors='replace').strip()
+                            logger.warning(f"Field '{field_name}': fallback decode -> '{value[:50]}{'...' if len(value) > 50 else ''}'")
+                    elif value is None:
+                        value = None
+                    elif hasattr(value, 'date') and callable(getattr(value, 'date')):
+                        # Handle datetime objects by converting to date string
+                        value = str(value.date())
+                    elif hasattr(value, '__class__') and 'date' in str(type(value)).lower():
+                        # Handle date objects by converting to string
+                        value = str(value)
+                    else:
+                        value = value
+                    record_dict[field_name] = value
+                records.append(record_dict)
+            
+            # Close the table
+            table.close()
             
             # Convert to Polars DataFrame with better type handling
             if records:
