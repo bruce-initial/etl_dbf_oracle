@@ -107,13 +107,17 @@ class DataExtractor:
                             # Try multiple encodings for DBF files
                             for encoding in ['utf-8', 'big5', 'gb2312', 'gbk', 'latin1', 'cp1252', 'iso-8859-1']:
                                 try:
-                                    value = value.decode(encoding).strip()
+                                    decoded_value = value.decode(encoding).strip()
+                                    if encoding != 'utf-8':
+                                        logger.info(f"Field '{field_name}': decoded with {encoding} -> '{decoded_value[:50]}{'...' if len(decoded_value) > 50 else ''}'")
+                                    value = decoded_value
                                     break
                                 except UnicodeDecodeError:
                                     continue
                             else:
                                 # If all encodings fail, use error handling
                                 value = value.decode('utf-8', errors='replace').strip()
+                                logger.warning(f"Field '{field_name}': fallback decode -> '{value[:50]}{'...' if len(value) > 50 else ''}')")
                         elif value is None:
                             value = None
                         elif hasattr(value, 'date') and callable(getattr(value, 'date')):
