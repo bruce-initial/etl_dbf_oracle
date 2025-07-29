@@ -33,7 +33,7 @@ class SchemaManager:
         elif isinstance(polars_type, pl.Duration):
             return "INTERVAL DAY TO SECOND"
         elif isinstance(polars_type, pl.Utf8):
-            return "VARCHAR2(1000)"
+            return "NVARCHAR2(1000)"
         elif isinstance(polars_type, pl.Decimal):
             # Handle Decimal with precision and scale
             precision = polars_type.precision or 9
@@ -55,7 +55,7 @@ class SchemaManager:
             pl.Boolean: "NUMBER(1)",
         }
         
-        return type_mapping.get(polars_type, "VARCHAR2(1000)")
+        return type_mapping.get(polars_type, "NVARCHAR2(1000)")
     
     @staticmethod
     def analyze_column_sizes(df: pl.DataFrame) -> Dict[str, int]:
@@ -123,7 +123,7 @@ class SchemaManager:
             polars_type = df[original_col].dtype
             
             if polars_type == pl.Utf8 and original_col in column_sizes:
-                oracle_type = f"VARCHAR2({column_sizes[original_col]})"
+                oracle_type = f"NVARCHAR2({max(column_sizes[original_col], 1000)})"
             else:
                 oracle_type = cls.polars_to_oracle_type(polars_type)
             
@@ -146,7 +146,7 @@ class SchemaManager:
         for original_col, sanitized_col in column_mapping.items():
             polars_type = df[original_col].dtype
             if polars_type == pl.Utf8 and original_col in column_sizes:
-                oracle_type = f"VARCHAR2({column_sizes[original_col]})"
+                oracle_type = f"NVARCHAR2({max(column_sizes[original_col], 1000)})"
             else:
                 oracle_type = cls.polars_to_oracle_type(polars_type)
             type_info.append(f"{original_col} ({polars_type}) -> {sanitized_col} ({oracle_type})")
