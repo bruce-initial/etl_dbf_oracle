@@ -93,21 +93,35 @@ class DataExtractor:
         try:
             # Read DBF file with encoding handling
             table = None
-            for encoding in ['utf-8', 'big5', 'gb2312', 'gbk', 'latin1', 'cp1252', 'iso-8859-1']:
+            # Extended list of encodings to try, including more Windows codepages
+            encodings_to_try = [
+                'utf-8', 'big5', 'gb2312', 'gbk', 'latin1', 'cp1252', 'iso-8859-1',
+                'cp950', 'cp936', 'cp1250', 'cp1251', 'cp1253', 'cp1254', 'cp1255',
+                'cp1256', 'cp1257', 'cp1258', 'cp437', 'cp850', 'cp852', 'cp855',
+                'cp857', 'cp860', 'cp861', 'cp862', 'cp863', 'cp864', 'cp865',
+                'cp866', 'cp869', 'cp874', 'windows-1252', 'windows-1250'
+            ]
+            
+            for encoding in encodings_to_try:
                 try:
                     table = dbf.Table(file_path, codepage=encoding)
                     table.open()
                     logger.info(f"DBF opened with encoding: {encoding}")
                     break
-                except (UnicodeDecodeError, dbf.DbfError):
+                except (UnicodeDecodeError, dbf.DbfError, LookupError):
                     if table:
                         table.close()
+                        table = None
                     continue
             else:
-                # Fallback without specifying encoding
-                table = dbf.Table(file_path)
-                table.open()
-                logger.info("DBF opened with default encoding")
+                # Fallback without specifying encoding - let dbf library handle it
+                try:
+                    table = dbf.Table(file_path)
+                    table.open()
+                    logger.info("DBF opened with default encoding")
+                except Exception as e:
+                    logger.error(f"Failed to open DBF file even with default encoding: {e}")
+                    raise Exception(f"Cannot open DBF file {file_path} with any encoding. Error: {e}")
             
             # Extract field names and data
             field_names = table.field_names
@@ -121,19 +135,26 @@ class DataExtractor:
                     # Handle special DBF data types
                     if isinstance(value, bytes):
                         # Try multiple encodings for DBF files
-                        for encoding in ['utf-8', 'big5', 'gb2312', 'gbk', 'latin1', 'cp1252', 'iso-8859-1']:
+                        field_encodings = [
+                            'utf-8', 'big5', 'gb2312', 'gbk', 'latin1', 'cp1252', 'iso-8859-1',
+                            'cp950', 'cp936', 'cp1250', 'cp1251', 'cp1253', 'cp1254', 'cp1255',
+                            'cp1256', 'cp1257', 'cp1258', 'cp437', 'cp850', 'cp852', 'cp855',
+                            'cp857', 'cp860', 'cp861', 'cp862', 'cp863', 'cp864', 'cp865',
+                            'cp866', 'cp869', 'cp874', 'windows-1252', 'windows-1250'
+                        ]
+                        for encoding in field_encodings:
                             try:
                                 decoded_value = value.decode(encoding).strip()
                                 if encoding != 'utf-8':
-                                    logger.info(f"Field '{field_name}': decoded with {encoding} -> '{decoded_value[:50]}{'...' if len(decoded_value) > 50 else ''}'")
+                                    logger.debug(f"Field '{field_name}': decoded with {encoding} -> '{decoded_value[:50]}{'...' if len(decoded_value) > 50 else ''}'")
                                 value = decoded_value
                                 break
-                            except UnicodeDecodeError:
+                            except (UnicodeDecodeError, LookupError):
                                 continue
                         else:
                             # If all encodings fail, use error handling
                             value = value.decode('utf-8', errors='replace').strip()
-                            logger.warning(f"Field '{field_name}': fallback decode -> '{value[:50]}{'...' if len(value) > 50 else ''}'")
+                            logger.warning(f"Field '{field_name}': fallback decode with error replacement -> '{value[:50]}{'...' if len(value) > 50 else ''}'")
                     elif value is None:
                         value = None
                     elif hasattr(value, 'date') and callable(getattr(value, 'date')):
