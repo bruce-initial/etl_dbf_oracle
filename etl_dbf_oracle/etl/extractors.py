@@ -847,8 +847,12 @@ class DataExtractor:
                     logger.info(f"Processing batch {batch_num}/{len(file_paths)}: {file_path}")
                     logger.info(f"Status: ETL processing batch {batch_num}")
                     
-                    # Run full ETL for this file
-                    etl_callback(config, file_path)
+                    # Extract data and add source file column before ETL
+                    df = self.extract_from_csv(file_path, csv_options)
+                    df = df.with_columns(pl.lit(file_path).alias("_source_file"))
+                    
+                    # Run ETL with the modified DataFrame
+                    etl_callback(config, df)
                     logger.info(f"Status: Batch {batch_num} ETL complete")
                 
                 return None  # No combined DataFrame needed
@@ -897,8 +901,12 @@ class DataExtractor:
                     logger.info(f"Processing batch {batch_num}/{len(file_paths)}: {file_path}")
                     logger.info(f"Status: ETL processing batch {batch_num}")
                     
-                    # Run full ETL for this file
-                    etl_callback(config, file_path)
+                    # Extract data and add source file column before ETL
+                    df = self.extract_from_dbf(file_path, dbf_options)
+                    df = df.with_columns(pl.lit(file_path).alias("_source_file"))
+                    
+                    # Run ETL with the modified DataFrame
+                    etl_callback(config, df)
                     logger.info(f"Status: Batch {batch_num} ETL complete")
                 
                 return None  # No combined DataFrame needed
@@ -947,8 +955,12 @@ class DataExtractor:
                     logger.info(f"Processing batch {batch_num}/{len(file_paths)}: {file_path}")
                     logger.info(f"Status: ETL processing batch {batch_num}")
                     
-                    # Run full ETL for this file
-                    etl_callback(config, file_path)
+                    # Extract data and add source file column before ETL
+                    df = self.extract_from_xlsx(file_path, xlsx_options)
+                    df = df.with_columns(pl.lit(file_path).alias("_source_file"))
+                    
+                    # Run ETL with the modified DataFrame
+                    etl_callback(config, df)
                     logger.info(f"Status: Batch {batch_num} ETL complete")
                 
                 return None  # No combined DataFrame needed

@@ -51,14 +51,14 @@ class OracleETL:
         connection = OracleConnection.from_env_file(env_file)
         return cls(connection)
     
-    def run_etl_for_table(self, config: TableConfig, file_path: Optional[str] = None,
+    def run_etl_for_table(self, config: TableConfig, file_path_or_df=None,
                          transformation_options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Run ETL pipeline for a single table configuration.
         
         Args:
             config: TableConfig object with all settings
-            file_path: Path to source file (required for CSV sources)
+            file_path_or_df: Path to source file, list of files, or pre-extracted DataFrame
             transformation_options: Options for data transformation
             
         Returns:
@@ -88,7 +88,14 @@ class OracleETL:
             
             # Step 1: Extract data
             logger.info("Step 1: Extracting data...")
-            df = self.extractor.extract_data(config, file_path)
+            
+            # Handle pre-extracted DataFrame vs file path
+            if hasattr(file_path_or_df, 'columns'):  # It's a DataFrame
+                df = file_path_or_df
+                logger.info(f"Using pre-extracted DataFrame with {len(df)} rows")
+            else:  # It's a file path
+                df = self.extractor.extract_data(config, file_path_or_df)
+            
             self.extractor.validate_extracted_data(df, config)
             etl_results['extraction_success'] = True
             etl_results['total_rows'] = len(df)
