@@ -33,7 +33,12 @@ class SchemaManager:
         elif isinstance(polars_type, pl.Duration):
             return "INTERVAL DAY TO SECOND"
         elif isinstance(polars_type, pl.Utf8):
-            return "VARCHAR2(4000)"  # Default size, can be optimized based on data
+            return "VARCHAR2(1000)"
+        elif isinstance(polars_type, pl.Decimal):
+            # Handle Decimal with precision and scale
+            precision = polars_type.precision or 9
+            scale = polars_type.scale or 2
+            return f"NUMBER({precision},{scale})"
         
         # Handle simple type mappings
         type_mapping = {
@@ -50,7 +55,7 @@ class SchemaManager:
             pl.Boolean: "NUMBER(1)",
         }
         
-        return type_mapping.get(polars_type, "VARCHAR2(4000)")
+        return type_mapping.get(polars_type, "VARCHAR2(1000)")
     
     @staticmethod
     def analyze_column_sizes(df: pl.DataFrame) -> Dict[str, int]:
@@ -121,6 +126,11 @@ class SchemaManager:
                 oracle_type = f"VARCHAR2({column_sizes[original_col]})"
             else:
                 oracle_type = cls.polars_to_oracle_type(polars_type)
+            
+            # Validate column name for Oracle
+            if not sanitized_col or not sanitized_col.replace('_', '').isalnum():
+                logger.warning(f"Invalid column name '{sanitized_col}', skipping")
+                continue
             
             column_definitions.append(f"    {sanitized_col} {oracle_type}")
         

@@ -123,8 +123,27 @@ class DataExtractor:
                     logger.error(f"Failed to open DBF file even with default encoding: {e}")
                     raise Exception(f"Cannot open DBF file {file_path} with any encoding. Error: {e}")
             
-            # Extract field names and data
+            # Extract field names and data with type information
             field_names = table.field_names
+            field_info = {}
+            try:
+                # Get field definitions from table structure
+                for field_def in table.structure():
+                    field_name = field_def[0]
+                    field_info[field_name] = {
+                        'type': field_def[1],
+                        'length': field_def[2] if len(field_def) > 2 else 0,
+                        'decimal_count': field_def[3] if len(field_def) > 3 else 0
+                    }
+            except:
+                # Fallback: assume all fields are character type
+                for field_name in field_names:
+                    field_info[field_name] = {
+                        'type': 'C',
+                        'length': 255,
+                        'decimal_count': 0
+                    }
+            
             records = []
             
             for record in table:
@@ -177,11 +196,27 @@ class DataExtractor:
                 import pandas as pd
                 pandas_df = pd.DataFrame(records)
                 
-                # Ensure proper type inference for mixed string/numeric data
+                # Ensure proper type inference using DBF field information
                 for col in pandas_df.columns:
-                    # Try to convert numeric strings to actual numbers
-                    if pandas_df[col].dtype == 'object':
-                        # Check if all non-null values are numeric strings
+                    if col in field_info:
+                        field_type = field_info[col]['type']
+                        decimal_count = field_info[col]['decimal_count']
+                        
+                        # Force numeric conversion for DBF numeric field types
+                        if field_type in ['N', 'F', 'B']:  # Numeric, Float, Binary
+                            try:
+                                if decimal_count > 0:
+                                    # Decimal field - convert to float
+                                    pandas_df[col] = pd.to_numeric(pandas_df[col], errors='coerce').astype('float64')
+                                else:
+                                    # Integer field - convert to int
+                                    pandas_df[col] = pd.to_numeric(pandas_df[col], errors='coerce').astype('Int64')
+                                logger.debug(f"Converted DBF field '{col}' (type {field_type}) to numeric")
+                            except Exception as e:
+                                logger.warning(f"Failed to convert DBF numeric field '{col}': {e}")
+                    
+                    # Fallback: Try to convert object columns that look numeric
+                    elif pandas_df[col].dtype == 'object':
                         non_null_values = pandas_df[col].dropna()
                         if len(non_null_values) > 0:
                             try:

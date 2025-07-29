@@ -59,6 +59,10 @@ class DatabaseOperations:
             
             # Generate and execute DDL
             ddl = self.schema_manager.create_table_ddl(table_name, df, column_mapping)
+            
+            # Clean DDL to prevent ORA-00911 errors
+            ddl = ddl.strip().rstrip(';')
+            
             logger.info(f"Creating table with DDL:\n{ddl}")
             
             cursor.execute(ddl)
