@@ -47,8 +47,9 @@ class ColumnSanitizer:
             # Remove special characters and spaces, replace with underscore
             sanitized = re.sub(r'[^\w]', '_', col.strip())
             
-            # Remove leading/trailing underscores and multiple consecutive underscores
-            sanitized = re.sub(r'^_+|_+$', '', sanitized)
+            # Remove only trailing underscores and multiple consecutive underscores
+            # Preserve leading underscores for columns like _NullFlags
+            sanitized = re.sub(r'_+$', '', sanitized)
             sanitized = re.sub(r'_+', '_', sanitized)
             
             # Ensure it doesn't start with a number
