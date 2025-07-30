@@ -1147,7 +1147,7 @@ class DataExtractor:
                     if i + 32 > len(fields_data):
                         break
                     field_desc = fields_data[i:i+32]
-                    field_name = field_desc[:11].decode('ascii').strip('\x00')
+                    field_name = field_desc[:11].decode('cp1252', errors='replace').strip('\x00')
                     field_type = chr(field_desc[11])
                     
                     # Skip memo field types (M, G, B, P)
@@ -1179,10 +1179,17 @@ class DataExtractor:
                     
                     for field in fields:
                         field_data = record_data[offset:offset + field['length']]
-                        try:
-                            value = field_data.decode('cp1252').strip()
-                        except:
-                            value = field_data.decode('utf-8', errors='replace').strip()
+                        
+                        # Try multiple encodings with error handling
+                        for encoding in ['cp1252', 'utf-8', 'latin1', 'iso-8859-1']:
+                            try:
+                                value = field_data.decode(encoding).strip()
+                                break
+                            except UnicodeDecodeError:
+                                continue
+                        else:
+                            # Fallback with error replacement
+                            value = field_data.decode('cp1252', errors='replace').strip()
                         
                         record[field['name']] = value
                         offset += field['length']
