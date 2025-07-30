@@ -91,6 +91,9 @@ class DataExtractor:
             raise FileNotFoundError(f"DBF file not found or not readable: {file_path}")
         
         try:
+            # Check for memo file requirements first
+            self._check_memo_files(file_path)
+            
             # Read DBF file with encoding handling
             table = None
             
@@ -118,10 +121,14 @@ class DataExtractor:
                     table.open()
                     logger.info(f"DBF opened with encoding: {encoding}")
                     break
-                except (UnicodeDecodeError, dbf.DbfError, LookupError):
+                except (UnicodeDecodeError, dbf.DbfError, LookupError) as e:
                     if table:
                         table.close()
                         table = None
+                    # Check for memo field specific errors
+                    if "memo field" in str(e).lower() or "table structure corrupt" in str(e).lower():
+                        logger.warning(f"Memo field error with encoding {encoding}: {e}")
+                        # Try to continue with other encodings, but log the issue
                     continue
             else:
                 # If forced encoding failed, try cp1252 and default fallback
@@ -141,8 +148,17 @@ class DataExtractor:
                         table.open()
                         logger.info("DBF opened with default encoding")
                     except Exception as e:
-                        logger.error(f"Failed to open DBF file even with default encoding: {e}")
-                        raise Exception(f"Cannot open DBF file {file_path} with any encoding. Error: {e}")
+                        error_msg = str(e).lower()
+                        if "memo field" in error_msg or "table structure corrupt" in error_msg:
+                            # Specific handling for memo field errors
+                            logger.error(f"DBF memo field error: {e}")
+                            memo_suggestion = self._get_memo_file_suggestion(file_path)
+                            error_with_suggestion = f"DBF file {file_path} has memo fields but missing memo file. {memo_suggestion}"
+                            logger.warning("Skipping DBF file due to missing memo file - please ensure .dbt or .fpt file is present")
+                            raise Exception(error_with_suggestion)
+                        else:
+                            logger.error(f"Failed to open DBF file even with default encoding: {e}")
+                            raise Exception(f"Cannot open DBF file {file_path} with any encoding. Error: {e}")
             
             # Extract field names and data with type information
             field_names = table.field_names
@@ -1043,3 +1059,71 @@ class DataExtractor:
         except Exception as e:
             logger.error(f"Failed to process multiple XLSX files: {e}")
             raise
+    
+    def _check_memo_files(self, dbf_file_path: str) -> None:
+        """
+        Check if DBF file requires memo files and validate their existence.
+        
+        Args:
+            dbf_file_path: Path to the DBF file
+        """
+        try:
+            dbf_path = Path(dbf_file_path)
+            base_name = dbf_path.stem
+            parent_dir = dbf_path.parent
+            
+            # Common memo file extensions
+            memo_extensions = ['.dbt', '.DBT', '.fpt', '.FPT']
+            
+            # Check if any memo files exist
+            existing_memo_files = []
+            for ext in memo_extensions:
+                memo_file = parent_dir / f"{base_name}{ext}"
+                if memo_file.exists():
+                    existing_memo_files.append(str(memo_file))
+            
+            if existing_memo_files:
+                logger.info(f"Found memo files: {existing_memo_files}")
+            else:
+                logger.debug(f"No memo files found for {dbf_file_path}")
+                
+        except Exception as e:
+            logger.warning(f"Failed to check memo files for {dbf_file_path}: {e}")
+    
+    def _get_memo_file_suggestion(self, dbf_file_path: str) -> str:
+        """
+        Get helpful suggestions for resolving memo file issues.
+        
+        Args:
+            dbf_file_path: Path to the DBF file
+            
+        Returns:
+            Suggestion message for resolving memo file issues
+        """
+        try:
+            dbf_path = Path(dbf_file_path)
+            base_name = dbf_path.stem
+            parent_dir = dbf_path.parent
+            
+            # Look for potential memo files in the same directory
+            all_files = list(parent_dir.glob(f"{base_name}.*"))
+            memo_candidates = [f for f in all_files if f.suffix.lower() in ['.dbt', '.fpt']]
+            
+            suggestions = []
+            suggestions.append(f"Expected memo file: {base_name}.dbt or {base_name}.fpt")
+            
+            if memo_candidates:
+                suggestions.append(f"Found potential memo files: {[str(f) for f in memo_candidates]}")
+            else:
+                suggestions.append("No memo files found in the same directory.")
+                # List all files in directory for debugging
+                all_files_str = [f.name for f in all_files]
+                suggestions.append(f"Available files: {all_files_str}")
+            
+            suggestions.append("Solution: Ensure the corresponding .dbt or .fpt file is in the same directory as the .dbf file.")
+            
+            return " ".join(suggestions)
+            
+        except Exception as e:
+            return f"Please ensure the corresponding memo file (.dbt or .fpt) is in the same directory. Error: {e}"
+    
