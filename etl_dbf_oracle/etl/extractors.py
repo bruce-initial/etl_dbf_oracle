@@ -150,11 +150,10 @@ class DataExtractor:
                     except Exception as e:
                         error_msg = str(e).lower()
                         if "memo field" in error_msg or "table structure corrupt" in error_msg:
-                            # Skip memo fields and continue reading
-                            logger.warning(f"DBF has memo fields but missing memo file - skipping memo fields: {e}")
+                            logger.warning("DBF contains memo fields - memo fields not supported, skipping and continuing with other fields")
                             table = self._read_without_memo_fields(file_path)
                             if not table:
-                                raise Exception(f"Cannot read DBF file {file_path} - memo fields present but memo file missing")
+                                raise Exception(f"Cannot read DBF file {file_path}")
                         else:
                             logger.error(f"Failed to open DBF file even with default encoding: {e}")
                             raise Exception(f"Cannot open DBF file {file_path} with any encoding. Error: {e}")
@@ -1127,14 +1126,11 @@ class DataExtractor:
             return f"Please ensure the corresponding memo file (.dbt or .fpt) is in the same directory. Error: {e}"
     
     def _read_without_memo_fields(self, file_path: str):
-        """Read DBF file skipping memo fields when memo file is missing."""
+        """Read DBF file skipping memo fields."""
         try:
-            # Try with ignore_missing_memofile if supported
             table = dbf.Table(file_path, ignore_missing_memofile=True)
             table.open()
-            logger.info("Opened DBF ignoring memo fields")
             return table
         except:
-            logger.warning("Cannot skip memo fields - DBF library doesn't support ignore_missing_memofile")
             return None
     
