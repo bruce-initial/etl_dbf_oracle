@@ -42,14 +42,14 @@ class SchemaManager:
         
         # Handle simple type mappings
         type_mapping = {
-            pl.Int8: "NUMBER(3)",
-            pl.Int16: "NUMBER(5)",
-            pl.Int32: "NUMBER(10)",
-            pl.Int64: "NUMBER(19)",
-            pl.UInt8: "NUMBER(3)",
-            pl.UInt16: "NUMBER(5)",
-            pl.UInt32: "NUMBER(10)",
-            pl.UInt64: "NUMBER(20)",
+            pl.Int8: "NVARCHAR2(1000)",
+            pl.Int16: "NVARCHAR2(1000)",
+            pl.Int32: "NVARCHAR2(1000)",
+            pl.Int64: "NVARCHAR2(1000)",
+            pl.UInt8: "NVARCHAR2(1000)",
+            pl.UInt16: "NVARCHAR2(1000)",
+            pl.UInt32: "NVARCHAR2(1000)",
+            pl.UInt64: "NVARCHAR2(1000)",
             pl.Float32: "BINARY_FLOAT",
             pl.Float64: "BINARY_DOUBLE",
             pl.Boolean: "NUMBER(1)",
