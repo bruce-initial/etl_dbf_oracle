@@ -93,14 +93,24 @@ class DataExtractor:
         try:
             # Read DBF file with encoding handling
             table = None
-            # Extended list of encodings to try, including more Windows codepages
-            encodings_to_try = [
-                'utf-8', 'big5', 'gb2312', 'gbk', 'latin1', 'cp1252', 'iso-8859-1',
-                'cp950', 'cp936', 'cp1250', 'cp1251', 'cp1253', 'cp1254', 'cp1255',
-                'cp1256', 'cp1257', 'cp1258', 'cp437', 'cp850', 'cp852', 'cp855',
-                'cp857', 'cp860', 'cp861', 'cp862', 'cp863', 'cp864', 'cp865',
-                'cp866', 'cp869', 'cp874', 'windows-1252', 'windows-1250'
-            ]
+            
+            # Check if specific encoding is requested in options
+            if dbf_options and 'encoding' in dbf_options:
+                forced_encoding = dbf_options['encoding']
+                logger.info(f"Using forced encoding from options: {forced_encoding}")
+                encodings_to_try = [forced_encoding]
+            else:
+                # Extended list of encodings to try, prioritizing cp1252 (Windows ANSI)
+                encodings_to_try = [
+                    'cp1252',  # Windows-1252 (Windows ANSI) - prioritized
+                    'windows-1252',  # Alternative name for cp1252
+                    'utf-8', 'latin1', 'iso-8859-1',
+                    'big5', 'gb2312', 'gbk', 'cp950', 'cp936',
+                    'cp1250', 'cp1251', 'cp1253', 'cp1254', 'cp1255',
+                    'cp1256', 'cp1257', 'cp1258', 'cp437', 'cp850', 'cp852', 'cp855',
+                    'cp857', 'cp860', 'cp861', 'cp862', 'cp863', 'cp864', 'cp865',
+                    'cp866', 'cp869', 'cp874', 'windows-1250'
+                ]
             
             for encoding in encodings_to_try:
                 try:
@@ -114,14 +124,25 @@ class DataExtractor:
                         table = None
                     continue
             else:
-                # Fallback without specifying encoding - let dbf library handle it
-                try:
-                    table = dbf.Table(file_path)
-                    table.open()
-                    logger.info("DBF opened with default encoding")
-                except Exception as e:
-                    logger.error(f"Failed to open DBF file even with default encoding: {e}")
-                    raise Exception(f"Cannot open DBF file {file_path} with any encoding. Error: {e}")
+                # If forced encoding failed, try cp1252 and default fallback
+                if dbf_options and 'encoding' in dbf_options:
+                    logger.warning(f"Forced encoding {dbf_options['encoding']} failed, trying cp1252 fallback")
+                    try:
+                        table = dbf.Table(file_path, codepage='cp1252')
+                        table.open()
+                        logger.info("DBF opened with cp1252 fallback encoding")
+                    except:
+                        pass
+                
+                # Final fallback without specifying encoding - let dbf library handle it
+                if not table:
+                    try:
+                        table = dbf.Table(file_path)
+                        table.open()
+                        logger.info("DBF opened with default encoding")
+                    except Exception as e:
+                        logger.error(f"Failed to open DBF file even with default encoding: {e}")
+                        raise Exception(f"Cannot open DBF file {file_path} with any encoding. Error: {e}")
             
             # Extract field names and data with type information
             field_names = table.field_names
@@ -153,13 +174,16 @@ class DataExtractor:
                     value = record[field_name]
                     # Handle special DBF data types
                     if isinstance(value, bytes):
-                        # Try multiple encodings for DBF files
+                        # Try multiple encodings for DBF files, prioritizing cp1252 (Windows ANSI)
                         field_encodings = [
-                            'utf-8', 'big5', 'gb2312', 'gbk', 'latin1', 'cp1252', 'iso-8859-1',
-                            'cp950', 'cp936', 'cp1250', 'cp1251', 'cp1253', 'cp1254', 'cp1255',
+                            'cp1252',  # Windows-1252 (Windows ANSI) - prioritized
+                            'windows-1252',  # Alternative name for cp1252
+                            'utf-8', 'latin1', 'iso-8859-1',
+                            'big5', 'gb2312', 'gbk', 'cp950', 'cp936',
+                            'cp1250', 'cp1251', 'cp1253', 'cp1254', 'cp1255',
                             'cp1256', 'cp1257', 'cp1258', 'cp437', 'cp850', 'cp852', 'cp855',
                             'cp857', 'cp860', 'cp861', 'cp862', 'cp863', 'cp864', 'cp865',
-                            'cp866', 'cp869', 'cp874', 'windows-1252', 'windows-1250'
+                            'cp866', 'cp869', 'cp874', 'windows-1250'
                         ]
                         for encoding in field_encodings:
                             try:
