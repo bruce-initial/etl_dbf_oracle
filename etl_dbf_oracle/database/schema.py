@@ -92,7 +92,7 @@ class SchemaManager:
                         max_length = max_length * 1.2  # 20% buffer for very large columns
                     
                     # Ensure reasonable bounds
-                    max_length = max(max_length, 100)  # Minimum 100 chars
+                    max_length = max(max_length, 1000)  # Minimum 100 chars
                     max_length = min(max_length, 4000)  # Oracle VARCHAR2 limit
                 
                 column_sizes[col] = int(max_length)
