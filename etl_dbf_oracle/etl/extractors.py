@@ -150,11 +150,10 @@ class DataExtractor:
                     except Exception as e:
                         error_msg = str(e).lower()
                         if "memo field" in error_msg or "table structure corrupt" in error_msg:
-                            logger.warning("DBF contains memo fields - memo fields not supported, skipping and continuing with other fields")
+                            logger.warning(f"DBF file {file_path} contains memo fields - skipping memo fields only, processing other fields")
                             table = self._read_without_memo_fields(file_path)
                             if not table:
-                                logger.error(f"Failed to skip memo fields in {file_path}. Original error: {e}")
-                                raise Exception(f"Cannot read DBF file {file_path} - memo field handling failed")
+                                raise Exception(f"Cannot read DBF file {file_path} - failed to skip memo fields")
                         else:
                             logger.error(f"Failed to open DBF file even with default encoding: {e}")
                             raise Exception(f"Cannot open DBF file {file_path} with any encoding. Error: {e}")
@@ -1127,94 +1126,41 @@ class DataExtractor:
             return f"Please ensure the corresponding memo file (.dbt or .fpt) is in the same directory. Error: {e}"
     
     def _read_without_memo_fields(self, file_path: str):
-        """Read DBF file manually skipping memo fields."""
+        """Read DBF file skipping memo fields using simpledbf."""
         try:
-            import struct
+            import pandas as pd
+            from simpledbf import Dbf5
             
-            # Read DBF header manually to filter out memo fields
-            with open(file_path, 'rb') as f:
-                # Read header
-                header = f.read(32)
-                version, year, month, day, record_count, header_length, record_length = struct.unpack('<BBBBLHH', header[:16])
+            # Use simpledbf which can handle memo field issues better
+            dbf_obj = Dbf5(file_path, codec='cp1252')
+            df = dbf_obj.to_dataframe()
+            
+            # Convert to polars
+            import polars as pl
+            polars_df = pl.from_pandas(df)
+            
+            # Create mock table object
+            class MockTable:
+                def __init__(self, df):
+                    self.field_names = df.columns
+                    self._df = df
                 
-                # Read field descriptors
-                f.seek(32)
-                fields_data = f.read(header_length - 32 - 1)
+                def __iter__(self):
+                    return iter(self._df.to_dicts())
                 
-                # Parse fields and filter out memo types
-                fields = []
-                for i in range(0, len(fields_data), 32):
-                    if i + 32 > len(fields_data):
-                        break
-                    field_desc = fields_data[i:i+32]
-                    field_name = field_desc[:11].decode('cp1252', errors='replace').strip('\x00')
-                    field_type = chr(field_desc[11])
-                    
-                    # Skip memo field types (M, G, B, P)
-                    if field_type not in ['M', 'G', 'B', 'P']:
-                        fields.append({
-                            'name': field_name,
-                            'type': field_type,
-                            'length': field_desc[16],
-                            'decimal': field_desc[17]
-                        })
+                def close(self):
+                    pass
                 
-                logger.info(f"Found {len(fields)} non-memo fields to read")
-                
-                # Read records manually
-                f.seek(header_length)
-                records = []
-                
-                for _ in range(record_count):
-                    record_data = f.read(record_length)
-                    if len(record_data) < record_length:
-                        break
-                    
-                    # Skip deleted records
-                    if record_data[0:1] == b'*':
-                        continue
-                    
-                    record = {}
-                    offset = 1  # Skip deletion flag
-                    
-                    for field in fields:
-                        field_data = record_data[offset:offset + field['length']]
-                        
-                        # Try multiple encodings with error handling
-                        for encoding in ['cp1252', 'utf-8', 'latin1', 'iso-8859-1']:
-                            try:
-                                value = field_data.decode(encoding).strip()
-                                break
-                            except UnicodeDecodeError:
-                                continue
-                        else:
-                            # Fallback with error replacement
-                            value = field_data.decode('cp1252', errors='replace').strip()
-                        
-                        record[field['name']] = value
-                        offset += field['length']
-                    
-                    records.append(record)
-                
-                # Create a mock table-like object
-                class MockTable:
-                    def __init__(self, field_names, records):
-                        self.field_names = field_names
-                        self._records = records
-                        self._index = 0
-                    
-                    def __iter__(self):
-                        return iter(self._records)
-                    
-                    def close(self):
-                        pass
-                    
-                    def structure(self):
-                        return [(f['name'], f['type'], f['length'], f['decimal']) for f in fields]
-                
-                return MockTable([f['name'] for f in fields], records)
-                
+                def structure(self):
+                    return [(col, 'C', 255, 0) for col in self.field_names]
+            
+            logger.info(f"Successfully read DBF with simpledbf, skipping memo fields")
+            return MockTable(polars_df)
+            
+        except ImportError:
+            logger.warning("simpledbf not available - install with: pip install simpledbf")
+            return None
         except Exception as e:
-            logger.debug(f"Manual DBF reading failed: {e}")
+            logger.debug(f"simpledbf reading failed: {e}")
             return None
     
