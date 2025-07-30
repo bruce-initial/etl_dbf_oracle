@@ -153,7 +153,8 @@ class DataExtractor:
                             logger.warning("DBF contains memo fields - memo fields not supported, skipping and continuing with other fields")
                             table = self._read_without_memo_fields(file_path)
                             if not table:
-                                raise Exception(f"Cannot read DBF file {file_path}")
+                                logger.error(f"Failed to skip memo fields in {file_path}. Original error: {e}")
+                                raise Exception(f"Cannot read DBF file {file_path} - memo field handling failed")
                         else:
                             logger.error(f"Failed to open DBF file even with default encoding: {e}")
                             raise Exception(f"Cannot open DBF file {file_path} with any encoding. Error: {e}")
@@ -1130,7 +1131,9 @@ class DataExtractor:
         try:
             table = dbf.Table(file_path, ignore_missing_memofile=True)
             table.open()
+            logger.info("Successfully opened DBF skipping memo fields")
             return table
-        except:
+        except Exception as e:
+            logger.debug(f"ignore_missing_memofile failed: {e}")
             return None
     
