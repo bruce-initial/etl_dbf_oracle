@@ -120,7 +120,7 @@ class SchemaManager:
         column_sizes = cls.analyze_column_sizes(df)
         
         ddl_parts = [f"CREATE TABLE {table_name} ("]
-        column_definitions = ["    UID RAW(16) DEFAULT sys_guid()"]
+        column_definitions = ["    U_ID RAW(16) DEFAULT sys_guid()"]
         
         for original_col, sanitized_col in column_mapping.items():
             polars_type = df[original_col].dtype
