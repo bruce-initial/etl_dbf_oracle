@@ -27,7 +27,8 @@ class SchemaManager:
         if isinstance(polars_type, pl.Datetime):
             return "TIMESTAMP"
         elif isinstance(polars_type, pl.Date):
-            return "DATE"
+            # return "DATE"
+            return "NVARCHAR2(1000)"
         elif isinstance(polars_type, pl.Time):
             return "TIMESTAMP"
         elif isinstance(polars_type, pl.Duration):
@@ -38,9 +39,11 @@ class SchemaManager:
             # Handle Decimal with precision and scale
             precision = polars_type.precision or 9
             scale = polars_type.scale or 2
-            return f"NUMBER({precision},{scale})"
+            # return f"NUMBER({precision},{scale})"
+            return "NVARCHAR2(1000)"
         
         # Handle simple type mappings
+        # [PENDING: revert to original type matching]
         type_mapping = {
             pl.Int8: "NVARCHAR2(1000)",
             pl.Int16: "NVARCHAR2(1000)",
@@ -50,8 +53,8 @@ class SchemaManager:
             pl.UInt16: "NVARCHAR2(1000)",
             pl.UInt32: "NVARCHAR2(1000)",
             pl.UInt64: "NVARCHAR2(1000)",
-            pl.Float32: "BINARY_FLOAT",
-            pl.Float64: "BINARY_DOUBLE",
+            pl.Float32: "NVARCHAR2(1000)",
+            pl.Float64: "NVARCHAR2(1000)",
             pl.Boolean: "NUMBER(1)",
         }
         
@@ -117,7 +120,7 @@ class SchemaManager:
         column_sizes = cls.analyze_column_sizes(df)
         
         ddl_parts = [f"CREATE TABLE {table_name} ("]
-        column_definitions = []
+        column_definitions = ["    UID RAW(16) DEFAULT sys_guid()"]
         
         for original_col, sanitized_col in column_mapping.items():
             polars_type = df[original_col].dtype
