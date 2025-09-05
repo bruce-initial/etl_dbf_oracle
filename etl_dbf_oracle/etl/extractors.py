@@ -267,44 +267,56 @@ class DataExtractor:
             
             # Convert to Polars DataFrame with better type handling
             if records:
-                # Use pandas as intermediate step for better type handling
+                # Use pandas as intermediate step but keep everything as strings to avoid Polars schema errors
                 import pandas as pd
+                
+                logger.info(f"Creating pandas DataFrame from {len(records)} DBF records")
                 pandas_df = pd.DataFrame(records)
                 
-                # Ensure proper type inference using DBF field information
+                # Convert all columns to strings to avoid mixed type issues when converting to Polars
+                logger.info("Converting all DBF columns to strings to prevent schema inference errors")
                 for col in pandas_df.columns:
-                    if col in field_info:
-                        field_type = field_info[col]['type']
-                        decimal_count = field_info[col]['decimal_count']
-                        
-                        # Force numeric conversion for DBF numeric field types
-                        if field_type in ['N', 'F', 'B']:  # Numeric, Float, Binary
-                            try:
-                                if decimal_count > 0:
-                                    # Decimal field - convert to float
-                                    pandas_df[col] = pd.to_numeric(pandas_df[col], errors='coerce').astype('float64')
-                                else:
-                                    # Integer field - convert to int
-                                    pandas_df[col] = pd.to_numeric(pandas_df[col], errors='coerce').astype('Int64')
-                                logger.debug(f"Converted DBF field '{col}' (type {field_type}) to numeric")
-                            except Exception as e:
-                                logger.warning(f"Failed to convert DBF numeric field '{col}': {e}")
-                    
-                    # Fallback: Try to convert object columns that look numeric
-                    elif pandas_df[col].dtype == 'object':
-                        non_null_values = pandas_df[col].dropna()
-                        if len(non_null_values) > 0:
-                            try:
-                                # Try converting to numeric
-                                numeric_values = pd.to_numeric(non_null_values, errors='coerce')
-                                # If all values converted successfully (no NaN from conversion)
-                                if not numeric_values.isna().any():
-                                    pandas_df[col] = pd.to_numeric(pandas_df[col], errors='coerce')
-                            except:
-                                pass  # Keep as string
+                    try:
+                        # Convert to string, handling None/NaN values
+                        pandas_df[col] = pandas_df[col].astype(str)
+                        # Replace 'nan' string with actual None for Polars
+                        pandas_df[col] = pandas_df[col].replace({'nan': None, 'None': None, '': None})
+                        logger.debug(f"Converted DBF column '{col}' to string")
+                    except Exception as e:
+                        logger.warning(f"Failed to convert DBF column '{col}' to string: {e}")
                 
-                # Convert pandas DataFrame to Polars
-                df = pl.from_pandas(pandas_df)
+                logger.info("All DBF columns converted to strings successfully")
+                
+                # Convert pandas DataFrame to Polars with explicit string schema
+                try:
+                    # Create explicit string schema for all columns
+                    string_schema = {col: pl.Utf8 for col in pandas_df.columns}
+                    df = pl.from_pandas(pandas_df, schema_overrides=string_schema)
+                    logger.info(f"Successfully converted to Polars with string schema: {df.dtypes}")
+                    
+                except Exception as polars_error:
+                    logger.error(f"Polars conversion with schema failed: {polars_error}")
+                    logger.info("Attempting fallback Polars conversion without schema override")
+                    
+                    # Fallback: Try without schema override
+                    try:
+                        df = pl.from_pandas(pandas_df)
+                        # Force all columns to strings if they aren't already
+                        string_conversions = []
+                        for col, dtype in zip(df.columns, df.dtypes):
+                            if dtype != pl.Utf8:
+                                string_conversions.append(pl.col(col).cast(pl.Utf8, strict=False))
+                            else:
+                                string_conversions.append(pl.col(col))
+                        
+                        if string_conversions:
+                            df = df.with_columns(string_conversions)
+                        
+                        logger.info(f"Fallback conversion successful: {df.dtypes}")
+                        
+                    except Exception as fallback_error:
+                        logger.error(f"All Polars conversion attempts failed: {fallback_error}")
+                        raise fallback_error
                 
             else:
                 # Create empty DataFrame with field names
@@ -1147,6 +1159,51 @@ class DataExtractor:
             logger.error(f"Failed to process multiple XLSX files: {e}")
             raise
     
+    def _read_csv_line_by_line(self, file_path: str) -> pl.DataFrame:
+        """
+        Last resort method to read CSV line by line when all other methods fail.
+        
+        Args:
+            file_path: Path to CSV file
+            
+        Returns:
+            Polars DataFrame with all columns as strings
+        """
+        logger.info(f"Reading CSV line-by-line: {file_path}")
+        
+        import csv
+        rows = []
+        headers = None
+        
+        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+            # Use Python's CSV reader which is very tolerant
+            csv_reader = csv.reader(f)
+            
+            for i, row in enumerate(csv_reader):
+                if i == 0:
+                    headers = row
+                    logger.debug(f"Headers: {headers}")
+                else:
+                    # Ensure row has same number of columns as headers
+                    while len(row) < len(headers):
+                        row.append('')  # Pad with empty strings
+                    if len(row) > len(headers):
+                        row = row[:len(headers)]  # Truncate excess columns
+                    
+                    rows.append(row)
+        
+        # Create dictionary for DataFrame
+        data_dict = {}
+        for i, header in enumerate(headers):
+            data_dict[header] = [row[i] if i < len(row) else '' for row in rows]
+        
+        # Create Polars DataFrame with explicit string schema
+        string_schema = {col: pl.Utf8 for col in headers}
+        df = pl.DataFrame(data_dict, schema=string_schema)
+        
+        logger.info(f"Line-by-line reading successful: {len(df)} rows, {len(df.columns)} columns")
+        return df
+
     def _check_memo_files(self, dbf_file_path: str) -> None:
         """
         Check if DBF file requires memo files and validate their existence.
