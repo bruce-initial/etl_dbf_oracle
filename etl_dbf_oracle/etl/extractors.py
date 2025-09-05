@@ -267,56 +267,68 @@ class DataExtractor:
             
             # Convert to Polars DataFrame with better type handling
             if records:
-                # Use pandas as intermediate step but keep everything as strings to avoid Polars schema errors
-                import pandas as pd
+                # Use safe DataFrame creation to completely avoid schema inference errors
+                logger.info(f"Creating DataFrame from {len(records)} DBF records using safe creation method")
                 
-                logger.info(f"Creating pandas DataFrame from {len(records)} DBF records")
-                pandas_df = pd.DataFrame(records)
+                # Import our safe DataFrame creator
+                from ..utils.safe_dataframe import safe_records_to_dataframe
                 
-                # Convert all columns to strings to avoid mixed type issues when converting to Polars
-                logger.info("Converting all DBF columns to strings to prevent schema inference errors")
-                for col in pandas_df.columns:
-                    try:
-                        # Convert to string, handling None/NaN values
-                        pandas_df[col] = pandas_df[col].astype(str)
-                        # Replace 'nan' string with actual None for Polars
-                        pandas_df[col] = pandas_df[col].replace({'nan': None, 'None': None, '': None})
-                        logger.debug(f"Converted DBF column '{col}' to string")
-                    except Exception as e:
-                        logger.warning(f"Failed to convert DBF column '{col}' to string: {e}")
-                
-                logger.info("All DBF columns converted to strings successfully")
-                
-                # Convert pandas DataFrame to Polars with explicit string schema
                 try:
-                    # Create explicit string schema for all columns
-                    string_schema = {col: pl.Utf8 for col in pandas_df.columns}
-                    df = pl.from_pandas(pandas_df, schema_overrides=string_schema)
-                    logger.info(f"Successfully converted to Polars with string schema: {df.dtypes}")
+                    # Use the safe creation method that handles all edge cases
+                    df = safe_records_to_dataframe(records)
+                    logger.info(f"✅ Successfully created Polars DataFrame using safe method: {len(df)} rows, {len(df.columns)} columns")
+                    logger.info(f"All column types: {df.dtypes}")
                     
-                except Exception as polars_error:
-                    logger.error(f"Polars conversion with schema failed: {polars_error}")
-                    logger.info("Attempting fallback Polars conversion without schema override")
+                    # Verify all columns are strings
+                    non_string_cols = [col for col, dtype in zip(df.columns, df.dtypes) if dtype != pl.Utf8]
+                    if non_string_cols:
+                        logger.warning(f"Some columns are not strings: {non_string_cols}")
+                    else:
+                        logger.info("✅ All columns are strings as expected")
+                
+                except Exception as safe_error:
+                    logger.error(f"Safe DataFrame creation failed: {safe_error}")
+                    logger.info("Falling back to pandas-based conversion with aggressive string conversion")
                     
-                    # Fallback: Try without schema override
+                    # Fallback to pandas method with maximum safety
                     try:
-                        df = pl.from_pandas(pandas_df)
-                        # Force all columns to strings if they aren't already
-                        string_conversions = []
-                        for col, dtype in zip(df.columns, df.dtypes):
-                            if dtype != pl.Utf8:
-                                string_conversions.append(pl.col(col).cast(pl.Utf8, strict=False))
-                            else:
-                                string_conversions.append(pl.col(col))
+                        import pandas as pd
                         
-                        if string_conversions:
-                            df = df.with_columns(string_conversions)
+                        # Convert records to pandas with string conversion
+                        logger.info("Converting all values to strings before pandas DataFrame creation")
+                        string_records = []
+                        for record in records:
+                            string_record = {}
+                            for key, value in record.items():
+                                if value is None:
+                                    string_record[key] = None
+                                else:
+                                    try:
+                                        string_record[key] = str(value)
+                                    except Exception as str_error:
+                                        logger.warning(f"Failed to convert value to string for key '{key}': {str_error}")
+                                        string_record[key] = str(value)[:100]  # Truncate problematic values
+                            string_records.append(string_record)
                         
-                        logger.info(f"Fallback conversion successful: {df.dtypes}")
+                        # Create pandas DataFrame
+                        pandas_df = pd.DataFrame(string_records, dtype=str)
                         
-                    except Exception as fallback_error:
-                        logger.error(f"All Polars conversion attempts failed: {fallback_error}")
-                        raise fallback_error
+                        # Clean up pandas DataFrame
+                        for col in pandas_df.columns:
+                            pandas_df[col] = pandas_df[col].replace({
+                                'nan': None, 'NaN': None, '<NA>': None,
+                                'None': None, 'null': None, 'NULL': None
+                            })
+                        
+                        # Convert to Polars with safe method
+                        from ..utils.safe_dataframe import safe_from_pandas
+                        df = safe_from_pandas(pandas_df, force_string_schema=True)
+                        
+                        logger.info(f"✅ Fallback method successful: {len(df)} rows, types: {df.dtypes}")
+                        
+                    except Exception as pandas_fallback_error:
+                        logger.error(f"All DBF DataFrame creation methods failed: {pandas_fallback_error}")
+                        raise pandas_fallback_error
                 
             else:
                 # Create empty DataFrame with field names
@@ -847,9 +859,16 @@ class DataExtractor:
                     # Convert back to Polars DataFrame
                     if result:
                         records = [dict(zip(columns, row)) for row in result]
-                        result_df = pl.DataFrame(records)
+                        # Use safe DataFrame creation
+                        try:
+                            from ..utils.safe_dataframe import safe_records_to_dataframe
+                            result_df = safe_records_to_dataframe(records)
+                        except Exception as safe_error:
+                            logger.warning(f"Safe DataFrame creation failed: {safe_error}")
+                            result_df = pl.DataFrame(records)
                     else:
-                        result_df = pl.DataFrame({col: [] for col in columns})
+                        string_schema = {col: pl.Utf8 for col in columns}
+                        result_df = pl.DataFrame({col: [] for col in columns}, schema=string_schema)
                     
                     return result_df
                     
@@ -885,12 +904,19 @@ class DataExtractor:
             result = conn.execute(modified_query).fetchall()
             columns = [desc[0] for desc in conn.description]
             
-            # Convert back to Polars DataFrame
+            # Convert back to Polars DataFrame using safe creation
             if result:
                 records = [dict(zip(columns, row)) for row in result]
-                result_df = pl.DataFrame(records)
+                # Use safe DataFrame creation
+                try:
+                    from ..utils.safe_dataframe import safe_records_to_dataframe
+                    result_df = safe_records_to_dataframe(records)
+                except Exception as safe_error:
+                    logger.warning(f"Safe DataFrame creation failed: {safe_error}")
+                    result_df = pl.DataFrame(records)
             else:
-                result_df = pl.DataFrame({col: [] for col in columns})
+                string_schema = {col: pl.Utf8 for col in columns}
+                result_df = pl.DataFrame({col: [] for col in columns}, schema=string_schema)
             
             conn.close()
             return result_df

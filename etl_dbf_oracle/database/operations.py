@@ -682,14 +682,24 @@ class DatabaseOperations:
             data = cursor.fetchall()
             cursor.close()
             
-            # Convert to Polars DataFrame
+            # Convert to Polars DataFrame using safe creation
             if data:
                 # Convert to list of dictionaries
                 records = [dict(zip(columns, row)) for row in data]
-                df = pl.DataFrame(records)
+                
+                # Use safe DataFrame creation to avoid schema errors
+                try:
+                    from ..utils.safe_dataframe import safe_records_to_dataframe
+                    df = safe_records_to_dataframe(records)
+                    logger.debug(f"Created safe DataFrame from query results: {len(df)} rows")
+                except Exception as safe_error:
+                    logger.warning(f"Safe DataFrame creation failed, using fallback: {safe_error}")
+                    # Fallback to original method
+                    df = pl.DataFrame(records)
             else:
-                # Empty result
-                df = pl.DataFrame({col: [] for col in columns})
+                # Empty result with string schema
+                string_schema = {col: pl.Utf8 for col in columns}
+                df = pl.DataFrame({col: [] for col in columns}, schema=string_schema)
             
             logger.info(f"Query executed successfully, returned {len(df)} rows")
             return df
