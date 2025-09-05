@@ -11,6 +11,7 @@ from ..database.operations import DatabaseOperations
 from .extractors import DataExtractor
 from .transformers import DataTransformer
 from .loaders import DataLoader
+from .quality_checker import DataQualityChecker
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,7 @@ class OracleETL:
         self.extractor = DataExtractor(self.db_operations)
         self.transformer = DataTransformer()
         self.loader = DataLoader(self.db_operations)
+        self.quality_checker = DataQualityChecker(self.db_operations)
     
     @classmethod
     def from_env_file(cls, env_file: str = '.env') -> 'OracleETL':
@@ -73,9 +75,11 @@ class OracleETL:
             'extraction_success': False,
             'transformation_success': False,
             'loading_success': False,
+            'quality_check_success': False,
             'total_rows': 0,
             'column_mapping': {},
-            'load_info': {}
+            'load_info': {},
+            'quality_results': []
         }
         
         try:
@@ -145,6 +149,75 @@ class OracleETL:
             load_info = self.loader.load_data(config, transformed_df, table_column_mapping)
             etl_results['loading_success'] = True
             etl_results['load_info'] = load_info
+            
+            # Step 4: Data Quality Checks (only for Oracle target type)
+            if config.target_type.lower() == 'oracle' and hasattr(config, 'enable_row_count_check'):
+                logger.info("Step 4: Performing data quality checks...")
+                try:
+                    # Perform quality checks if enabled
+                    if config.enable_row_count_check or config.enable_content_check:
+                        # Use the original DataFrame (before transformation) for source comparison
+                        source_for_quality = df if hasattr(df, 'columns') else transformed_df
+                        
+                        # Only perform enabled checks
+                        if config.enable_row_count_check and config.enable_content_check:
+                            # Perform both checks
+                            quality_results = self.quality_checker.perform_quality_checks(
+                                source_for_quality, 
+                                config.target_table,
+                                config.quality_sample_percentage,
+                                table_column_mapping,
+                                config.quality_exclude_columns,
+                                config.quality_source_file_identifier
+                            )
+                        elif config.enable_row_count_check:
+                            # Only row count check
+                            quality_results = [self.quality_checker.check_row_count_completeness(
+                                source_for_quality, 
+                                config.target_table,
+                                config.quality_source_file_identifier
+                            )]
+                        elif config.enable_content_check:
+                            # Only content check
+                            quality_results = [self.quality_checker.check_content_accuracy(
+                                source_for_quality, 
+                                config.target_table,
+                                config.quality_sample_percentage,
+                                table_column_mapping,
+                                config.quality_exclude_columns,
+                                config.quality_source_file_identifier
+                            )]
+                        else:
+                            quality_results = []
+                        
+                        etl_results['quality_results'] = quality_results
+                        
+                        # Check if all quality checks passed
+                        all_passed = all(result.get('status') == 'PASSED' for result in quality_results)
+                        etl_results['quality_check_success'] = all_passed
+                        
+                        if all_passed:
+                            logger.info("All data quality checks passed!")
+                        else:
+                            failed_checks = [r for r in quality_results if r.get('status') != 'PASSED']
+                            logger.warning(f"Some data quality checks failed: {len(failed_checks)}/{len(quality_results)} checks failed")
+                            for failed_check in failed_checks:
+                                logger.warning(f"Failed check: {failed_check.get('check_type')} - {failed_check.get('error_message')}")
+                    else:
+                        logger.info("Data quality checks are disabled for this table")
+                        etl_results['quality_check_success'] = True  # Consider as passed if disabled
+                        
+                except Exception as quality_error:
+                    logger.error(f"Data quality checks failed: {quality_error}")
+                    etl_results['quality_check_success'] = False
+                    etl_results['quality_results'] = [{
+                        'check_type': 'SYSTEM_ERROR',
+                        'status': 'FAILED',
+                        'error_message': str(quality_error)
+                    }]
+            else:
+                # Quality checks not applicable for non-Oracle targets or not configured
+                etl_results['quality_check_success'] = True
             
             logger.info(f"ETL pipeline completed successfully for {config.target_table}!")
             logger.info(f"Final column mapping: {table_column_mapping}")
@@ -357,6 +430,7 @@ class OracleETL:
         """
         total_tables = len(results)
         successful_tables = sum(1 for r in results.values() if r.get('loading_success', False))
+        quality_passed_tables = sum(1 for r in results.values() if r.get('quality_check_success', False))
         failed_tables = total_tables - successful_tables
         total_rows = sum(r.get('total_rows', 0) for r in results.values())
         
@@ -366,6 +440,7 @@ class OracleETL:
             f"Total tables processed: {total_tables}",
             f"Successful: {successful_tables}",
             f"Failed: {failed_tables}",
+            f"Quality checks passed: {quality_passed_tables}",
             f"Total rows processed: {total_rows:,}",
             "",
             "Table Details:",
@@ -377,7 +452,9 @@ class OracleETL:
                 summary_lines.append(f"❌ {table_name}: {result['error']}")
             else:
                 rows = result.get('total_rows', 0)
-                summary_lines.append(f"✅ {table_name}: {rows:,} rows")
+                quality_status = result.get('quality_check_success', False)
+                quality_icon = "🔍✅" if quality_status else "🔍❌"
+                summary_lines.append(f"✅ {table_name}: {rows:,} rows {quality_icon}")
         
         return "\n".join(summary_lines)
     

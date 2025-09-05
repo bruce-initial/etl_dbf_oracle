@@ -2,13 +2,20 @@ tables:
   # DBF to Oracle example
   dbf_to_oracle_table:
     source_type: dbf
-    source_file_path: [sample.dbf, sample.dbf]  # Explicit DBF source file
+    source_file_path: [sample1.dbf, sample2.dbf]  # Explicit DBF source file
     target_type: oracle
     target_table: TEST_DBF
     primary_key: []
     batch_size: 500
     drop_if_exists: true
     dbf_options: {}
+    # Data quality checking configuration
+    data_quality_checks:
+      enable_row_count_check: true      # Enable row count validation
+      enable_content_check: true        # Enable content accuracy validation
+      sample_percentage: 10.0           # Percentage of rows to sample for content validation
+      exclude_columns: ['U_ID', 'SOURCE_FILE']  # Columns to exclude from content comparison
+      source_file_identifier: null     # Optional: identifier to filter target data for composite tables
 
   # DBF to Oracle example
   # dbf_to_xlsx_table:
@@ -34,6 +41,13 @@ tables:
   #   csv_options:
   #     infer_schema_length: 5000
   #     null_values: ['', 'NULL', 'N/A']
+  #   # Data quality checking configuration
+  #   data_quality_checks:
+  #     enable_row_count_check: true      # Enable row count validation
+  #     enable_content_check: true        # Enable content accuracy validation
+  #     sample_percentage: 15.0           # Percentage of rows to sample for content validation
+  #     exclude_columns: ['U_ID', 'SOURCE_FILE']  # Columns to exclude from content comparison
+  #     source_file_identifier: 'sample.csv'     # Filter target data for this specific source file
 
   # XLSX to Oracle example
   # xlsx_to_oracle_table:

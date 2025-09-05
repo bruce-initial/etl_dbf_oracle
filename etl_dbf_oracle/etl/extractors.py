@@ -104,7 +104,7 @@ class DataExtractor:
                 encodings_to_try = [forced_encoding]
             else:
                 # Extended list of encodings to try, prioritizing cp1252 (Windows ANSI)
-                encodings_to_try = [
+                encodings_to_try = [ 'cp437',
                     'cp1252',  # Windows-1252 (Windows ANSI) - prioritized
                     'windows-1252',  # Alternative name for cp1252
                     'utf-8', 'latin1', 'iso-8859-1',

@@ -46,6 +46,14 @@ class TableConfig:
         # Data source configuration for custom queries
         self.data_source = config_dict.get('data_source', {})
         
+        # Data quality checking configuration
+        self.data_quality_checks = config_dict.get('data_quality_checks', {})
+        self.quality_sample_percentage = self.data_quality_checks.get('sample_percentage', 10.0)
+        self.enable_row_count_check = self.data_quality_checks.get('enable_row_count_check', True)
+        self.enable_content_check = self.data_quality_checks.get('enable_content_check', True)
+        self.quality_exclude_columns = self.data_quality_checks.get('exclude_columns', ['U_ID', 'SOURCE_FILE'])
+        self.quality_source_file_identifier = self.data_quality_checks.get('source_file_identifier')
+        
         # Validate required fields
         self._validate_config()
     
@@ -189,7 +197,8 @@ class TableConfig:
             'csv_options': self.csv_options,
             'dbf_options': self.dbf_options,
             'xlsx_options': self.xlsx_options,
-            'data_source': self.data_source
+            'data_source': self.data_source,
+            'data_quality_checks': self.data_quality_checks
         }
     
     def __repr__(self) -> str:

@@ -8,5 +8,6 @@ __version__ = "0.1.0"
 
 from .config.table_config import TableConfig
 from .etl.pipeline import OracleETL
+from .etl.quality_checker import DataQualityChecker
 
-__all__ = ["TableConfig", "OracleETL"]
+__all__ = ["TableConfig", "OracleETL", "DataQualityChecker"]
