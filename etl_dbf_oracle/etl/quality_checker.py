@@ -361,9 +361,27 @@ class DataQualityChecker:
                             additional_mismatches = mismatched_rows - len(mismatch_details)
                             error_parts.append(f"... and {additional_mismatches} more rows with mismatches")
                         
-                        # Add sample of target data for context (first 3 rows max)
+                        # Add comprehensive data discrepancy information
+                        error_parts.append("=== SOURCE vs TARGET DATA DISCREPANCIES ===")
+                        
+                        # Add source data sample
+                        if source_rows_data and len(source_rows_data) > 0:
+                            error_parts.append(f"SOURCE data sample (first {min(3, len(source_rows_data))} rows):")
+                            for idx, source_row in enumerate(source_rows_data[:3]):
+                                source_row_values = []
+                                for col in common_columns[:3]:  # Limit columns to avoid too much data
+                                    val = source_row.get(col, 'NULL')
+                                    val_str = str(val)
+                                    truncated_val = val_str[:50] + ('...' if len(val_str) > 50 else '')
+                                    source_row_values.append(f"{col}='{truncated_val}'")
+                                error_parts.append(f"  Source[{idx+1}]: {', '.join(source_row_values)}")
+                            
+                            if len(source_rows_data) > 3:
+                                error_parts.append(f"  ... and {len(source_rows_data) - 3} more source rows")
+                        
+                        # Add target data sample  
                         if target_rows_data and len(target_rows_data) > 0:
-                            error_parts.append(f"Target data sample (first {min(3, len(target_rows_data))} rows):")
+                            error_parts.append(f"TARGET data sample (first {min(3, len(target_rows_data))} rows):")
                             for idx, target_row in enumerate(target_rows_data[:3]):
                                 target_row_values = []
                                 for col in common_columns[:3]:  # Limit columns to avoid too much data
@@ -375,6 +393,36 @@ class DataQualityChecker:
                             
                             if len(target_rows_data) > 3:
                                 error_parts.append(f"  ... and {len(target_rows_data) - 3} more target rows")
+                        
+                        # Add column-by-column data analysis
+                        error_parts.append("COLUMN ANALYSIS:")
+                        for col in common_columns[:5]:  # Analyze first 5 columns
+                            source_values = [row.get(col, 'NULL') for row in source_rows_data[:10]]
+                            target_values = [row.get(col, 'NULL') for row in target_rows_data[:10]]
+                            
+                            source_unique = set(str(v) for v in source_values if v is not None)
+                            target_unique = set(str(v) for v in target_values if v is not None)
+                            
+                            error_parts.append(f"  {col}: Source_unique={len(source_unique)} Target_unique={len(target_unique)}")
+                            
+                            # Show unique values if sets are small
+                            if len(source_unique) <= 5 and len(target_unique) <= 5:
+                                error_parts.append(f"    Source_vals: {sorted(list(source_unique))}")
+                                error_parts.append(f"    Target_vals: {sorted(list(target_unique))}")
+                            
+                            # Show intersection and differences
+                            common_vals = source_unique & target_unique
+                            source_only = source_unique - target_unique
+                            target_only = target_unique - source_unique
+                            
+                            if common_vals:
+                                error_parts.append(f"    Common: {len(common_vals)} values")
+                            if source_only:
+                                error_parts.append(f"    Source_only: {list(source_only)[:3]}")
+                            if target_only:
+                                error_parts.append(f"    Target_only: {list(target_only)[:3]}")
+                        
+                        error_parts.append("=== END DISCREPANCY ANALYSIS ===")
                     
                     # Combine all error parts, but ensure we don't exceed database field limits
                     full_error_message = " ".join(error_parts)

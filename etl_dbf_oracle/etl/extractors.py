@@ -48,58 +48,58 @@ class DataExtractor:
             raise FileNotFoundError(f"CSV file not found or not readable: {file_path}")
         
         try:
-            # Default parameters for robust CSV reading
-            default_params = {
-                'infer_schema_length': 10000,  # Scan more rows for better type inference
-                'try_parse_dates': False,  # We'll handle datetime parsing manually
+            # Use string schema by default to avoid mixed data type issues
+            logger.info(f"Reading CSV {file_path} with string schema to avoid mixed type errors")
+            
+            # Force all columns to be read as strings initially
+            string_schema_params = {
+                'infer_schema_length': 0,  # Don't infer types, read everything as strings
+                'try_parse_dates': False,  # We'll handle datetime parsing manually  
                 'null_values': ['', 'NULL', 'null', 'NA', 'N/A', 'n/a'],
-                'ignore_errors': True
+                'ignore_errors': True,
+                'truncate_ragged_lines': True,  # Handle inconsistent row lengths
             }
             
-            # Merge with provided options
+            # Merge with provided options, but prioritize our string schema approach
             if csv_options:
-                default_params.update(csv_options)
+                # Only allow safe options that don't interfere with string schema
+                safe_options = {k: v for k, v in csv_options.items() 
+                              if k not in ['infer_schema_length', 'try_parse_dates', 'schema_overrides']}
+                string_schema_params.update(safe_options)
+                
+                # Log if we're overriding user options
+                overridden_options = {k: v for k, v in csv_options.items() 
+                                    if k in ['infer_schema_length', 'try_parse_dates', 'schema_overrides']}
+                if overridden_options:
+                    logger.info(f"Overriding CSV options to use string schema: {overridden_options}")
             
             try:
-                # First attempt: normal reading with schema inference
-                df = pl.read_csv(file_path, **default_params)
-            except Exception as schema_error:
-                if "could not append value" in str(schema_error) and "make sure that all rows have the same schema" in str(schema_error):
-                    logger.warning(f"Schema inference failed for {file_path}: {schema_error}")
-                    logger.info("Attempting to read CSV with all columns as strings to handle mixed data types")
-                    
-                    # Fallback: Read everything as strings first
-                    fallback_params = default_params.copy()
-                    fallback_params['infer_schema_length'] = 0  # Don't infer schema, read as strings
-                    
-                    try:
-                        df = pl.read_csv(file_path, **fallback_params)
-                        logger.info(f"Successfully read CSV as strings, will handle type conversion later")
-                    except Exception as fallback_error:
-                        logger.error(f"Fallback string reading also failed: {fallback_error}")
-                        
-                        # Last resort: Try with even more aggressive settings
-                        final_params = {
-                            'infer_schema_length': 0,  # Read all as strings
-                            'try_parse_dates': False,
-                            'null_values': [''],  # Only empty strings as null
-                            'ignore_errors': True,
-                            'truncate_ragged_lines': True,  # Handle inconsistent row lengths
-                            'schema_overrides': None  # Let it be all strings
-                        }
-                        
-                        if csv_options:
-                            # Only merge non-conflicting options
-                            safe_options = {k: v for k, v in csv_options.items() 
-                                          if k not in ['infer_schema_length', 'try_parse_dates', 'schema_overrides']}
-                            final_params.update(safe_options)
-                        
-                        df = pl.read_csv(file_path, **final_params)
-                        logger.info(f"Successfully read CSV with aggressive fallback settings")
-                else:
-                    raise schema_error
+                # Read with string schema
+                df = pl.read_csv(file_path, **string_schema_params)
+                logger.info(f"Successfully read CSV as strings: {len(df)} rows, {len(df.columns)} columns")
+                
+                # Log the column types to verify they're all strings
+                logger.debug(f"Column types after string read: {df.dtypes}")
+                
+            except Exception as string_error:
+                logger.error(f"String schema reading failed for {file_path}: {string_error}")
+                logger.info("Attempting fallback with minimal parameters")
+                
+                # Ultra-minimal fallback
+                minimal_params = {
+                    'infer_schema_length': 0,
+                    'ignore_errors': True,
+                    'null_values': ['']
+                }
+                
+                try:
+                    df = pl.read_csv(file_path, **minimal_params)
+                    logger.info(f"Minimal fallback successful: {len(df)} rows")
+                except Exception as minimal_error:
+                    logger.error(f"All CSV reading attempts failed: {minimal_error}")
+                    raise minimal_error
             
-            # Post-process datetime columns that failed to parse
+            # Post-process datetime columns and handle type conversions
             df = self._fix_datetime_columns(df)
             
             logger.info(f"Successfully extracted CSV: {file_path} ({len(df)} rows)")
