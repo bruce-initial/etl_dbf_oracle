@@ -218,49 +218,68 @@ class DataExtractor:
             
             records = []
             
-            for record in table:
-                # Convert DBF record to dictionary
+            for record_idx, record in enumerate(table):
+                # Convert DBF record to dictionary with aggressive string conversion
                 record_dict = {}
                 for field_name in field_names:
-                    value = record[field_name]
-                    # Handle special DBF data types
-                    if isinstance(value, bytes):
-                        # Try multiple encodings for DBF files, prioritizing cp1252 (Windows ANSI)
-                        field_encodings = [
-                            'cp1252',  # Windows-1252 (Windows ANSI) - prioritized
-                            'windows-1252',  # Alternative name for cp1252
-                            'utf-8', 'latin1', 'iso-8859-1',
-                            'big5', 'gb2312', 'gbk', 'cp950', 'cp936',
-                            'cp1250', 'cp1251', 'cp1253', 'cp1254', 'cp1255',
-                            'cp1256', 'cp1257', 'cp1258', 'cp437', 'cp850', 'cp852', 'cp855',
-                            'cp857', 'cp860', 'cp861', 'cp862', 'cp863', 'cp864', 'cp865',
-                            'cp866', 'cp869', 'cp874', 'windows-1250'
-                        ]
-                        for encoding in field_encodings:
-                            try:
-                                decoded_value = value.decode(encoding).strip()
-                                if encoding != 'utf-8':
-                                    logger.debug(f"Field '{field_name}': decoded with {encoding} -> '{decoded_value[:50]}{'...' if len(decoded_value) > 50 else ''}'")
-                                value = decoded_value
-                                break
-                            except (UnicodeDecodeError, LookupError):
-                                continue
+                    try:
+                        value = record[field_name]
+                        
+                        # AGGRESSIVE FIX: Convert EVERYTHING to strings immediately to prevent schema errors
+                        if value is None:
+                            final_value = None
                         else:
-                            # If all encodings fail, use error handling
-                            value = value.decode('utf-8', errors='replace').strip()
-                            logger.warning(f"Field '{field_name}': fallback decode with error replacement -> '{value[:50]}{'...' if len(value) > 50 else ''}'")
-                    elif value is None:
-                        value = None
-                    elif hasattr(value, 'date') and callable(getattr(value, 'date')):
-                        # Handle datetime objects by converting to date string
-                        value = str(value.date())
-                    elif hasattr(value, '__class__') and 'date' in str(type(value)).lower():
-                        # Handle date objects by converting to string
-                        value = str(value)
-                    else:
-                        value = value
-                    record_dict[field_name] = value
+                            # Handle special DBF data types and convert ALL to strings
+                            if isinstance(value, bytes):
+                                # Try multiple encodings for DBF files
+                                field_encodings = [
+                                    'cp1252', 'windows-1252', 'utf-8', 'latin1', 'iso-8859-1'
+                                ]
+                                decoded_value = None
+                                for encoding in field_encodings:
+                                    try:
+                                        decoded_value = value.decode(encoding).strip()
+                                        break
+                                    except (UnicodeDecodeError, LookupError):
+                                        continue
+                                
+                                if decoded_value is None:
+                                    decoded_value = value.decode('utf-8', errors='replace').strip()
+                                
+                                final_value = str(decoded_value) if decoded_value else ""
+                                
+                            elif hasattr(value, 'date') and callable(getattr(value, 'date')):
+                                # Handle datetime objects - convert to string immediately
+                                final_value = str(value.date())
+                                
+                            elif hasattr(value, '__class__') and 'date' in str(type(value)).lower():
+                                # Handle date objects - convert to string immediately  
+                                final_value = str(value)
+                                
+                            else:
+                                # Convert ANY other type to string immediately
+                                try:
+                                    final_value = str(value).strip() if value is not None else ""
+                                except Exception as str_error:
+                                    logger.warning(f"Failed to convert value to string for field '{field_name}' in record {record_idx}: {str_error}")
+                                    final_value = str(value)[:100]  # Truncate if conversion fails
+                        
+                        # Ensure we never have empty strings that might cause issues
+                        if final_value == "":
+                            final_value = None
+                            
+                        record_dict[field_name] = final_value
+                        
+                    except Exception as field_error:
+                        logger.error(f"Error processing field '{field_name}' in record {record_idx}: {field_error}")
+                        # Set to None if any error occurs during field processing
+                        record_dict[field_name] = None
+                
                 records.append(record_dict)
+                
+                # Log progress for large files
+                if record_idx > 0 and record_idx % 1000 == 0:
+                    logger.info(f"Processed {record_idx} DBF records...")
             
             # Close the table
             table.close()

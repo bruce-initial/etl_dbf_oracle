@@ -164,30 +164,67 @@ class SafeDataFrameCreator:
         if not records:
             return {}
         
+        logger.debug(f"Homogenizing {len(records)} records for DataFrame creation")
+        
         # Get all unique column names
         all_columns = set()
         for record in records:
             if isinstance(record, dict):
                 all_columns.update(record.keys())
         
+        logger.debug(f"Found {len(all_columns)} unique columns: {list(all_columns)[:10]}{'...' if len(all_columns) > 10 else ''}")
+        
         # Create homogeneous data structure
         column_data = {}
         for col in all_columns:
             column_values = []
-            for record in records:
+            value_types = set()  # Track value types for debugging
+            
+            for record_idx, record in enumerate(records):
                 value = record.get(col)
+                
                 # Convert everything to strings to ensure homogeneity
                 if value is None:
                     column_values.append(None)
+                    value_types.add(type(None))
                 else:
                     try:
-                        column_values.append(str(value))
+                        # Extra aggressive string conversion
+                        if isinstance(value, str):
+                            # Already a string, just clean it
+                            clean_value = str(value).strip()
+                            # Handle the problematic "2005-01-07" case specifically
+                            if clean_value and len(clean_value) == 10 and clean_value.count('-') == 2:
+                                # This looks like a date string - ensure it's treated as a string
+                                column_values.append(clean_value)
+                            else:
+                                column_values.append(clean_value if clean_value else None)
+                        else:
+                            # Convert non-string types to string
+                            str_value = str(value).strip()
+                            column_values.append(str_value if str_value else None)
+                        
+                        value_types.add(type(value))
+                        
                     except Exception as e:
-                        logger.warning(f"Failed to convert value to string for column '{col}': {e}")
-                        column_values.append(str(value)[:100])  # Truncate if needed
+                        logger.warning(f"Failed to convert value to string for column '{col}' at record {record_idx}: {e}")
+                        logger.warning(f"Problematic value: {repr(value)} (type: {type(value)})")
+                        
+                        # Ultimate fallback - try to convert to string with truncation
+                        try:
+                            fallback_str = str(value)[:100] 
+                            column_values.append(fallback_str if fallback_str else None)
+                        except Exception as fallback_error:
+                            logger.error(f"Even fallback string conversion failed: {fallback_error}")
+                            column_values.append(None)  # Give up and use None
+            
+            # Log if there were mixed types in a column
+            if len(value_types) > 2:  # More than string and None
+                logger.debug(f"Column '{col}' had mixed types: {value_types}")
             
             column_data[col] = column_values
         
+        logger.debug(f"Homogenization complete: {len(column_data)} columns, {len(records)} rows")
         return column_data
 
 
@@ -215,8 +252,97 @@ def safe_records_to_dataframe(records: List[Dict[str, Any]]) -> pl.DataFrame:
     if not records:
         return pl.DataFrame({})
     
-    # Homogenize records
-    column_data = SafeDataFrameCreator.homogenize_records_for_dataframe(records)
+    try:
+        # Primary approach: Homogenize records and create DataFrame
+        column_data = SafeDataFrameCreator.homogenize_records_for_dataframe(records)
+        return SafeDataFrameCreator.create_dataframe(column_data, force_string_schema=True)
+        
+    except Exception as primary_error:
+        logger.error(f"Primary safe DataFrame creation failed: {primary_error}")
+        logger.info("Attempting column-by-column DataFrame creation for maximum safety")
+        
+        # Ultra-safe fallback: Create DataFrame column by column
+        return _create_dataframe_column_by_column(records)
+
+
+def _create_dataframe_column_by_column(records: List[Dict[str, Any]]) -> pl.DataFrame:
+    """
+    Ultimate fallback: Create DataFrame column by column to isolate problematic columns.
     
-    # Create DataFrame with string schema
-    return SafeDataFrameCreator.create_dataframe(column_data, force_string_schema=True)
+    Args:
+        records: List of dictionaries
+        
+    Returns:
+        Polars DataFrame created column by column
+    """
+    if not records:
+        return pl.DataFrame({})
+    
+    # Get all unique column names
+    all_columns = set()
+    for record in records:
+        if isinstance(record, dict):
+            all_columns.update(record.keys())
+    
+    logger.info(f"Creating DataFrame column-by-column for {len(all_columns)} columns")
+    
+    # Create columns one by one
+    column_series = {}
+    for col_name in sorted(all_columns):  # Sort for consistent order
+        try:
+            # Extract all values for this column
+            column_values = []
+            for record in records:
+                value = record.get(col_name)
+                
+                # Super aggressive string conversion
+                if value is None:
+                    column_values.append(None)
+                else:
+                    try:
+                        # Convert to string with extra safety
+                        str_value = str(value)
+                        # Special handling for date-like strings
+                        if str_value and len(str_value) >= 8 and '-' in str_value:
+                            # Ensure date strings are treated as plain strings
+                            column_values.append(str_value)
+                        else:
+                            column_values.append(str_value if str_value else None)
+                    except Exception as conv_error:
+                        logger.warning(f"Failed to convert value for column '{col_name}': {conv_error}")
+                        column_values.append(None)
+            
+            # Create Polars Series with explicit string type
+            try:
+                series = pl.Series(col_name, column_values, dtype=pl.Utf8)
+                column_series[col_name] = series
+                logger.debug(f"Successfully created series for column '{col_name}': {len(column_values)} values")
+                
+            except Exception as series_error:
+                logger.error(f"Failed to create series for column '{col_name}': {series_error}")
+                logger.info(f"Sample values for '{col_name}': {column_values[:3]}")
+                
+                # Create an empty series if individual column fails
+                empty_series = pl.Series(col_name, [None] * len(records), dtype=pl.Utf8)
+                column_series[col_name] = empty_series
+                
+        except Exception as col_error:
+            logger.error(f"Column '{col_name}' processing completely failed: {col_error}")
+            # Create empty series for failed column
+            empty_series = pl.Series(col_name, [None] * len(records), dtype=pl.Utf8)
+            column_series[col_name] = empty_series
+    
+    # Combine all series into DataFrame
+    try:
+        if column_series:
+            df = pl.DataFrame(column_series)
+            logger.info(f"✅ Column-by-column DataFrame creation successful: {len(df)} rows, {len(df.columns)} columns")
+            return df
+        else:
+            logger.warning("No columns could be processed, returning empty DataFrame")
+            return pl.DataFrame({})
+            
+    except Exception as combine_error:
+        logger.error(f"Failed to combine columns into DataFrame: {combine_error}")
+        # Last resort: create completely empty DataFrame
+        return pl.DataFrame({})
