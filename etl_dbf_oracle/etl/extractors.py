@@ -60,7 +60,44 @@ class DataExtractor:
             if csv_options:
                 default_params.update(csv_options)
             
-            df = pl.read_csv(file_path, **default_params)
+            try:
+                # First attempt: normal reading with schema inference
+                df = pl.read_csv(file_path, **default_params)
+            except Exception as schema_error:
+                if "could not append value" in str(schema_error) and "make sure that all rows have the same schema" in str(schema_error):
+                    logger.warning(f"Schema inference failed for {file_path}: {schema_error}")
+                    logger.info("Attempting to read CSV with all columns as strings to handle mixed data types")
+                    
+                    # Fallback: Read everything as strings first
+                    fallback_params = default_params.copy()
+                    fallback_params['infer_schema_length'] = 0  # Don't infer schema, read as strings
+                    
+                    try:
+                        df = pl.read_csv(file_path, **fallback_params)
+                        logger.info(f"Successfully read CSV as strings, will handle type conversion later")
+                    except Exception as fallback_error:
+                        logger.error(f"Fallback string reading also failed: {fallback_error}")
+                        
+                        # Last resort: Try with even more aggressive settings
+                        final_params = {
+                            'infer_schema_length': 0,  # Read all as strings
+                            'try_parse_dates': False,
+                            'null_values': [''],  # Only empty strings as null
+                            'ignore_errors': True,
+                            'truncate_ragged_lines': True,  # Handle inconsistent row lengths
+                            'schema_overrides': None  # Let it be all strings
+                        }
+                        
+                        if csv_options:
+                            # Only merge non-conflicting options
+                            safe_options = {k: v for k, v in csv_options.items() 
+                                          if k not in ['infer_schema_length', 'try_parse_dates', 'schema_overrides']}
+                            final_params.update(safe_options)
+                        
+                        df = pl.read_csv(file_path, **final_params)
+                        logger.info(f"Successfully read CSV with aggressive fallback settings")
+                else:
+                    raise schema_error
             
             # Post-process datetime columns that failed to parse
             df = self._fix_datetime_columns(df)
@@ -349,41 +386,79 @@ class DataExtractor:
     def _fix_datetime_columns(self, df: pl.DataFrame) -> pl.DataFrame:
         """
         Fix datetime columns that failed to parse during CSV reading.
+        Also handles mixed data types by ensuring consistent column types.
         
         Args:
             df: Input DataFrame
             
         Returns:
-            DataFrame with properly parsed datetime columns
+            DataFrame with properly parsed datetime columns and consistent types
         """
         transformations = []
         datetime_patterns = [
             "%Y-%m-%d %H:%M:%S%.f",  # 2025-07-23 17:56:23.001 (correct format)
             "%Y-%m-%d %H:%M:%S",     # 2025-07-23 17:56:23
-            "%Y-%m-%d",              # 2025-07-23
+            "%Y-%m-%d",              # 2025-07-23 (like the error example: '2005-01-07')
             "%m/%d/%Y %H:%M:%S%.f",  # 07/23/2025 17:56:23.001
             "%m/%d/%Y %H:%M:%S",     # 07/23/2025 17:56:23
             "%m/%d/%Y",              # 07/23/2025
+            "%d/%m/%Y",              # 07/23/2025 (European format)
+            "%Y%m%d",                # 20250723 (compact format)
         ]
         
         for col in df.columns:
             col_data = df[col]
             
-            # Check if column contains datetime-like strings
-            if (col_data.dtype == pl.Utf8 and 
-                col.strip().lower().endswith(('_at', '_time', 'date', 'time')) and
-                not col_data.is_null().all()):
-                
+            # First, handle mixed data type columns by converting everything to strings
+            if col_data.dtype != pl.Utf8:
+                try:
+                    # Convert non-string columns to strings to handle mixed types
+                    transformations.append(pl.col(col).cast(pl.Utf8, strict=False))
+                    col_data = df.select(pl.col(col).cast(pl.Utf8, strict=False)).to_series()
+                    logger.debug(f"Converted column '{col}' from {df[col].dtype} to string to handle mixed types")
+                except Exception as e:
+                    logger.warning(f"Could not convert column '{col}' to string: {e}")
+                    transformations.append(pl.col(col))
+                    continue
+            
+            # Check if column contains datetime-like strings or has datetime-like name
+            is_datetime_column = False
+            
+            # Check by column name patterns
+            col_lower = col.strip().lower()
+            if any(pattern in col_lower for pattern in ['date', 'time', '_at', '_on', 'created', 'updated', 'modified']):
+                is_datetime_column = True
+            
+            # Check by content patterns (sample first few non-null values)
+            if not is_datetime_column and col_data.dtype == pl.Utf8:
+                sample_values = col_data.drop_nulls().head(10).to_list()
+                for val in sample_values:
+                    if val and isinstance(val, str):
+                        # Look for date-like patterns in the data
+                        val_clean = val.strip()
+                        if (len(val_clean) >= 8 and 
+                            any(char.isdigit() for char in val_clean) and
+                            any(sep in val_clean for sep in ['-', '/', ' ', ':'])):
+                            is_datetime_column = True
+                            break
+            
+            if is_datetime_column and col_data.dtype == pl.Utf8 and not col_data.is_null().all():
                 # Try parsing with different patterns
                 parsed_col = None
                 for pattern in datetime_patterns:
                     try:
-                        # Strip whitespace from values before parsing
-                        parsed_col = pl.col(col).str.strip_chars().str.strptime(pl.Datetime, pattern, strict=False)
-                        # Test if parsing works by applying to first non-null value
+                        # Strip whitespace and handle mixed content
+                        parsed_col = (pl.col(col)
+                                    .str.strip_chars()
+                                    .str.replace_all(r'^\s*$', None)  # Convert empty strings to null
+                                    .str.strptime(pl.Datetime, pattern, strict=False))
+                        
+                        # Test if parsing works by applying to a sample
                         test_df = df.select(parsed_col.alias("test"))
-                        if not test_df["test"].is_null().all():
-                            logger.info(f"Successfully parsed datetime column '{col}' with pattern '{pattern}'")
+                        non_null_count = test_df.filter(pl.col("test").is_not_null()).height
+                        
+                        if non_null_count > 0:
+                            logger.info(f"Successfully parsed datetime column '{col}' with pattern '{pattern}' ({non_null_count} valid dates)")
                             transformations.append(parsed_col.alias(col))
                             break
                     except Exception as e:
@@ -392,12 +467,26 @@ class DataExtractor:
                 
                 if parsed_col is None:
                     logger.warning(f"Could not parse datetime column '{col}', keeping as string")
-                    transformations.append(pl.col(col))
+                    # Ensure it's still a clean string column
+                    transformations.append(pl.col(col).cast(pl.Utf8, strict=False))
             else:
-                transformations.append(pl.col(col))
+                # For non-datetime columns, ensure consistent string type if we detected mixed types
+                if col in [t.meta.root_names()[0] for t in transformations if hasattr(t.meta, 'root_names')]:
+                    # Already handled above
+                    continue
+                else:
+                    transformations.append(pl.col(col))
         
         if len(transformations) > 0:
-            return df.with_columns(transformations)
+            try:
+                return df.with_columns(transformations)
+            except Exception as e:
+                logger.warning(f"Failed to apply column transformations: {e}")
+                logger.info("Falling back to original DataFrame with all columns as strings")
+                # Last resort: convert everything to strings
+                string_transformations = [pl.col(col).cast(pl.Utf8, strict=False) for col in df.columns]
+                return df.with_columns(string_transformations)
+        
         return df
     
     def extract_from_sql_file(self, sql_file_path: str) -> str:
