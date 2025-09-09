@@ -108,7 +108,7 @@ class DataQualityChecker:
                 logger.info(f"Row count check for {target_table} (entire table)")
                 
             target_df = self.db_operations.execute_query(count_query)
-            target_count = target_df[0, 0]  # First row, first column
+            target_count = int(target_df[0, 0])  # First row, first column, convert to int
             check_result['target_count'] = target_count
             
             # Calculate completeness

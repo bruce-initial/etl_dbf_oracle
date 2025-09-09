@@ -203,7 +203,7 @@ class DataLoader:
             
             # Get the first value from the first column (using column index)
             first_column = result_df.columns[0]
-            loaded_count = result_df[first_column][0]
+            loaded_count = int(result_df[first_column][0])
             original_count = len(original_df)
             
             if loaded_count != original_count:
