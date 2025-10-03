@@ -25,12 +25,14 @@ class SchemaManager:
         """
         # Handle specific type instances first
         if isinstance(polars_type, pl.Datetime):
-            return "TIMESTAMP"
+            # return "TIMESTAMP"
+            return "NVARCHAR2(1000)"
         elif isinstance(polars_type, pl.Date):
             # return "DATE"
             return "NVARCHAR2(1000)"
         elif isinstance(polars_type, pl.Time):
-            return "TIMESTAMP"
+            # return "TIMESTAMP"
+            return "NVARCHAR2(1000)"
         elif isinstance(polars_type, pl.Duration):
             return "INTERVAL DAY TO SECOND"
         elif isinstance(polars_type, pl.Utf8):

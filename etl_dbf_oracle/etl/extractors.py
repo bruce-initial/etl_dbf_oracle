@@ -249,12 +249,20 @@ class DataExtractor:
                                 final_value = str(decoded_value) if decoded_value else ""
                                 
                             elif hasattr(value, 'date') and callable(getattr(value, 'date')):
-                                # Handle datetime objects - convert to string immediately
-                                final_value = str(value.date())
+                                # Handle datetime objects - preserve full datetime including time
+                                if hasattr(value, 'time') and callable(getattr(value, 'time')):
+                                    # Full datetime object - preserve both date and time
+                                    final_value = value.isoformat() if hasattr(value, 'isoformat') else str(value)
+                                else:
+                                    # Date-only object
+                                    final_value = str(value.date()) if hasattr(value, 'date') else str(value)
                                 
                             elif hasattr(value, '__class__') and 'date' in str(type(value)).lower():
-                                # Handle date objects - convert to string immediately  
-                                final_value = str(value)
+                                # Handle date objects - preserve in ISO format if possible
+                                if hasattr(value, 'isoformat'):
+                                    final_value = value.isoformat()
+                                else:
+                                    final_value = str(value)
                                 
                             else:
                                 # Convert ANY other type to string immediately
